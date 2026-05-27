@@ -23,7 +23,7 @@ namespace SpaceMayhem
     ///   D-pad →           barrel roll right (single committed 360°)
     ///   D-pad ↑           barrel roll up    (nose over the top)
     ///   D-pad ↓           barrel roll down  (nose goes under)
-    ///   South             brake
+    ///   L1                brake
     ///
     /// Keyboard/Mouse
     ///   WASD              thrust + strafe

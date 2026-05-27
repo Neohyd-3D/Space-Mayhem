@@ -416,7 +416,7 @@
                 {
                     "name": "",
                     "id": "3a000000-0000-0000-0000-000000000051",
-                    "path": "<Gamepad>/buttonSouth",
+                    "path": "<Gamepad>/leftShoulder",
                     "interactions": "",
                     "processors": "",
                     "groups": ";Gamepad",

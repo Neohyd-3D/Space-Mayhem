@@ -46,6 +46,12 @@ namespace SpaceMayhem
         [Tooltip("Exponential rotation lag time constant (seconds). Lower = tighter camera.")]
         public float rotationLag = 0.04f;
 
+        [Range(0f, 1f)]
+        [Tooltip("Multiplier applied to both lag values while the ship is braking. " +
+                 "Keeps the camera glued behind the ship during the brake/turn/reorient phase " +
+                 "so the boost launches cleanly from center-screen.")]
+        public float brakeLagMultiplier = 0.25f;
+
         // ── Internal state ────────────────────────────────────────────────────
         Vector3    _posVelocity;
         Vector3    _cameraUp = Vector3.up;
@@ -99,6 +105,13 @@ namespace SpaceMayhem
 
             _prevShipRot = ship.rotation;
 
+            // ── Lag scaling ───────────────────────────────────────────────────
+            // While braking, tighten the camera so it stays directly behind the
+            // ship's current heading. This ensures the boost fires from center-screen
+            // rather than from an offset camera that hasn't caught up to the new heading.
+            bool isBraking = controller != null && controller.isBraking;
+            float lagScale  = isBraking ? brakeLagMultiplier : 1f;
+
             // ── Position ──────────────────────────────────────────────────────
             Quaternion rollFreeRot = Quaternion.LookRotation(effectiveFwd, _cameraUp);
             Vector3 desiredPos = ship.position
@@ -106,7 +119,7 @@ namespace SpaceMayhem
 
             transform.position = Vector3.SmoothDamp(
                 transform.position, desiredPos, ref _posVelocity,
-                Mathf.Max(0.0001f, positionLag));
+                Mathf.Max(0.0001f, positionLag * lagScale));
 
             // ── Rotation ──────────────────────────────────────────────────────
             Vector3 lookTarget = ship.position + effectiveFwd * lookAheadDistance;
@@ -115,7 +128,7 @@ namespace SpaceMayhem
             lookDir.Normalize();
 
             Quaternion desiredRot = Quaternion.LookRotation(lookDir, _cameraUp);
-            float rotT = 1f - Mathf.Exp(-dt / Mathf.Max(0.0001f, rotationLag));
+            float rotT = 1f - Mathf.Exp(-dt / Mathf.Max(0.0001f, rotationLag * lagScale));
 
             // Short-path slerp guard (quaternion double-cover).
             if (Quaternion.Dot(transform.rotation, desiredRot) < 0f)

@@ -15,13 +15,26 @@ namespace SpaceMayhem
 
         public void StartRedirect(Vector3 oldVelocity, Vector3 newFacing, float carryover, float duration)
         {
-            _oldVelocity = oldVelocity;
-            float oldSpeed = oldVelocity.magnitude;
+            _oldVelocity    = oldVelocity;
+            float oldSpeed  = oldVelocity.magnitude;
             _targetVelocity = newFacing.normalized * oldSpeed * carryover;
-            _timer = 0f;
-            _duration = Mathf.Max(0.001f, duration);
-            _blended = oldVelocity;
-            IsRedirecting = true;
+            _timer          = 0f;
+            _duration       = Mathf.Max(0.001f, duration);
+            _blended        = oldVelocity;
+            IsRedirecting   = true;
+        }
+
+        // Smoothly accelerates from fromVelocity to an explicit toVelocity over duration
+        // seconds (smoothstep curve). Used for brake boosts where the target is not a
+        // direction-carryover calculation but a known desired velocity.
+        public void StartBoost(Vector3 fromVelocity, Vector3 toVelocity, float duration)
+        {
+            _oldVelocity    = fromVelocity;
+            _targetVelocity = toVelocity;
+            _timer          = 0f;
+            _duration       = Mathf.Max(0.001f, duration);
+            _blended        = fromVelocity;
+            IsRedirecting   = true;
         }
 
         // SpaceshipController calls this from FixedUpdate while IsRedirecting.
