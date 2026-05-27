@@ -124,6 +124,19 @@ namespace SpaceMayhem
         public Vector3 currentVelocity { get; private set; }
         public bool isBraking { get; private set; }
 
+        /// <summary>
+        /// Current yaw rotation rate in degrees/second. Positive = turning right.
+        /// Exposed so the camera look-ahead script can normalise against a rate
+        /// rather than a per-frame degree value (gamepad and mouse produce very
+        /// different per-frame magnitudes at equivalent intent).
+        /// </summary>
+        public float RotationRateYaw   { get; private set; }
+
+        /// <summary>
+        /// Current pitch rotation rate in degrees/second. Positive = pitching up.
+        /// </summary>
+        public float RotationRatePitch { get; private set; }
+
         Vector3 _thrustInput;
         Vector3 _rotationInput;  // degrees this frame (already source-scaled by SpaceshipInput)
         bool  _wasBraking;
@@ -170,6 +183,14 @@ namespace SpaceMayhem
             _thrustInput   = Vector3.ClampMagnitude(thrust, 1f);
             _rotationInput = rotation;
             isBraking      = braking;
+
+            // Convert per-frame degrees → degrees/second so the camera look-ahead
+            // gets a source-agnostic rate signal.  Gamepad full-stick and a fast
+            // mouse swipe both saturate toward the same magnitude; normalisation
+            // against gamepadLookSpeed (140 °/s) is done in CameraLookAhead.
+            float dt = Mathf.Max(Time.deltaTime, 0.0001f);
+            RotationRateYaw   =  rotation.y / dt;
+            RotationRatePitch = -rotation.x / dt; // –x = nose up = positive pitch
         }
 
         // direction: +1 = roll left / roll up,  -1 = roll right / roll down.

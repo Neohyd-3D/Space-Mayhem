@@ -12,23 +12,26 @@ namespace SpaceMayhem.Editor
     ///
     /// Architecture
     /// ────────────
-    /// ShipCameraTarget lives ON the VirtualCamera GameObject.  It writes the
-    /// final desired camera position and rotation to its own transform each
-    /// LateUpdate (position-lag SmoothDamp, rotation-lag Slerp, roll-free
-    /// swing-twist, barrel-roll freeze).
+    /// Stock Cinemachine 3.x pipeline:
     ///
-    /// CinemachineCamera has an EMPTY pipeline (no body, no aim).  A passive
-    /// CinemachineCamera reads its own transform.position / transform.rotation
-    /// as its state directly — so Cinemachine touches NOTHING position/rotation-wise.
+    ///   CinemachineCamera
+    ///   ├── CinemachineThirdPersonFollow   (Body) — position lag + behind-the-ship offset
+    ///   ├── CinemachineRotationComposer    (Aim)  — aim damping + screen composition
+    ///   └── CinemachineImpulseListener            — additive camera shake
     ///
-    /// CinemachineImpulseListener runs as an extension and adds camera shake
-    /// purely additively on top of the state.  No interference at all.
+    /// Both Body and Aim point at the Spaceship transform (Tracking + LookAt).
+    /// No custom proxy script — feel is tuned via the CM components in the Inspector.
     ///
-    /// What is created
-    /// ───────────────
-    ///  VirtualCamera  — CinemachineCamera (passive) + ShipCameraTarget + ImpulseListener
-    ///  Main Camera    — CinemachineBrain added; CameraFollower removed
-    ///  (No separate CameraTarget proxy GO needed)
+    /// Tunable on the VirtualCamera (live in Play Mode):
+    ///   CinemachineThirdPersonFollow:
+    ///     • CameraDistance      — how far behind the ship
+    ///     • VerticalArmLength   — how high above the ship pivot
+    ///     • ShoulderOffset      — lateral offset (keep zero for centered chase)
+    ///     • CameraSide          — 0.5 = centered
+    ///     • Damping (x,y,z)     — position lag per axis
+    ///   CinemachineRotationComposer:
+    ///     • Composition.ScreenPosition — where the ship sits in frame
+    ///     • Damping (x,y)              — aim lag (yaw, pitch)
     /// </summary>
     public static class CinemachineSetup
     {
@@ -45,7 +48,7 @@ namespace SpaceMayhem.Editor
                 return;
             }
 
-            // Remove CameraFollower — Brain now drives the real camera.
+            // Remove legacy CameraFollower — Brain now drives the real camera.
             var oldFollower = mainCamGO.GetComponent<CameraFollower>();
             if (oldFollower != null)
             {
@@ -67,7 +70,7 @@ namespace SpaceMayhem.Editor
                 return;
             }
 
-            // ── 3. Clean up old CameraTarget proxy (no longer needed) ─────────
+            // ── 3. Clean up legacy proxies if present ─────────────────────────
             var oldTarget = GameObject.Find("CameraTarget");
             if (oldTarget != null)
             {
@@ -75,49 +78,54 @@ namespace SpaceMayhem.Editor
                 Debug.Log("[CinemachineSetup] Removed legacy CameraTarget GO.");
             }
 
-            // ── 4. VirtualCamera — passive, pipeline-free ─────────────────────
+            // ── 4. VirtualCamera ──────────────────────────────────────────────
             var vcamGO = GameObject.Find(VCAM_NAME)
                       ?? new GameObject(VCAM_NAME);
             Undo.RegisterCreatedObjectUndo(vcamGO, "Create VirtualCamera");
 
-            // Passive CinemachineCamera: no body, no aim.
-            // It reads its own transform.position/rotation as the camera state.
-            // ShipCameraTarget writes to that transform every LateUpdate.
             var vcam = vcamGO.GetComponent<CinemachineCamera>()
                     ?? Undo.AddComponent<CinemachineCamera>(vcamGO);
-            vcam.Follow = null;
-            vcam.LookAt = null;
+            vcam.Follow = shipCtrl.transform;
+            vcam.LookAt = shipCtrl.transform;
 
-            // Remove any stale body/aim components left from a previous setup run.
+            // Strip any orphan proxy left from older setups.
+            var staleProxy = vcamGO.GetComponent<ShipCameraTarget>();
+            if (staleProxy != null) Undo.DestroyObjectImmediate(staleProxy);
+
+            // Strip any non-matching body component (we want ThirdPersonFollow).
             var staleFollow = vcamGO.GetComponent<CinemachineFollow>();
             if (staleFollow != null) Undo.DestroyObjectImmediate(staleFollow);
 
-            var staleComposer = vcamGO.GetComponent<CinemachineRotationComposer>();
-            if (staleComposer != null) Undo.DestroyObjectImmediate(staleComposer);
+            // ── 5. Body — CinemachineThirdPersonFollow ────────────────────────
+            var tpf = vcamGO.GetComponent<CinemachineThirdPersonFollow>()
+                   ?? Undo.AddComponent<CinemachineThirdPersonFollow>(vcamGO);
+            tpf.CameraDistance    = 8f;
+            tpf.VerticalArmLength = 2.5f;
+            tpf.CameraSide        = 0.5f;          // centered
+            tpf.ShoulderOffset    = Vector3.zero;  // no lateral offset
+            tpf.Damping           = new Vector3(0.1f, 0.3f, 0.3f);
 
-            // ── 5. ShipCameraTarget — owns ALL camera-feel logic ──────────────
-            var proxy = vcamGO.GetComponent<ShipCameraTarget>()
-                     ?? Undo.AddComponent<ShipCameraTarget>(vcamGO);
-            proxy.ship       = shipCtrl.transform;
-            proxy.controller = shipCtrl;
-            EditorUtility.SetDirty(vcamGO);
+            // ── 6. Aim — CinemachineRotationComposer ──────────────────────────
+            var rc = vcamGO.GetComponent<CinemachineRotationComposer>()
+                  ?? Undo.AddComponent<CinemachineRotationComposer>(vcamGO);
+            rc.Damping = new Vector2(0.1f, 0.1f);
+            var comp = rc.Composition;
+            comp.ScreenPosition = Vector2.zero;     // ship centered in frame
+            rc.Composition = comp;
 
-            // ── 6. CinemachineImpulseListener — shake-ready ───────────────────
-            // Adds camera shake additively to the state AFTER ShipCameraTarget
-            // has set the transform.  Zero coupling with position/rotation logic.
+            // ── 7. Shake-ready ────────────────────────────────────────────────
             if (vcamGO.GetComponent<CinemachineImpulseListener>() == null)
                 Undo.AddComponent<CinemachineImpulseListener>(vcamGO);
 
-            // ── Done ──────────────────────────────────────────────────────────
+            EditorUtility.SetDirty(vcamGO);
             EditorUtility.SetDirty(mainCamGO);
             UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(
                 SceneManager.GetActiveScene());
 
             Debug.Log("[CinemachineSetup] Done.\n"
-                + "  • Tweak feel via ShipCameraTarget on the VirtualCamera GO:\n"
-                + "      positionLag, rotationLag, cameraDistance, cameraHeight, lookAheadDistance\n"
-                + "  • All fields update live in Play Mode.\n"
-                + "  • Shake: add CinemachineImpulseSource to any GO and call GenerateImpulse().\n"
+                + "  • Body: CinemachineThirdPersonFollow (Distance=8, ArmLength=2.5, Damping=(0.1,0.3,0.3))\n"
+                + "  • Aim:  CinemachineRotationComposer  (Damping=(0.1,0.1), centered)\n"
+                + "  • Tune both components live in Play Mode via the Inspector.\n"
                 + "  • Save the scene (Ctrl/Cmd+S).");
         }
     }
