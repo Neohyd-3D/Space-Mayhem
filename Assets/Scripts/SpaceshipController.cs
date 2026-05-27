@@ -56,30 +56,27 @@ namespace SpaceMayhem
                  "2 = full pressure in 0.5 s; 1 = full pressure in 1 s.")]
         public float brakeBuildUp = 2f;
 
-        [Tooltip("Peak velocity (m/s) reached at full charge. The ship smoothly accelerates to this speed " +
-                 "over boostSnapDuration, then drag bleeds it off — giving a burst rather than a dash.")]
-        public float brakeBoostForce = 120f;
+        [Tooltip("Speed threshold (m/s) that separates reward from penalty on brake release. ~7 m/s ≈ 25 km/h.")]
+        public float brakeThresholdSpeed = 7f;
+
+        [Tooltip("Boost multiplier when entry speed was ABOVE the threshold. " +
+                 "boostPeak = entrySpeed × boostMultiplier × pressure. >1.0 = net gain.")]
+        public float boostMultiplier = 1.2f;
+
+        [Tooltip("Boost multiplier when entry speed was BELOW the threshold. " +
+                 "<1.0 = you exit slower than you entered (punishment for spamming at low speed).")]
+        public float brakePenaltyMultiplier = 0.5f;
 
         [Tooltip("Seconds to ramp velocity from current to the boosted peak. " +
                  "Short (0.15–0.25) = snappy burst. Longer = rocket-like thrust.")]
         public float boostSnapDuration = 0.2f;
 
-        [Range(0f, 1f)]
-        [Tooltip("Fraction of speed preserved when redirecting momentum on brake release (uncharged tap only).")]
-        public float momentumCarryover = 0.35f;
-
-        [Tooltip("Seconds to blend velocity toward new facing direction on brake release (uncharged tap only).")]
-        public float redirectBlendDuration = 0.5f;
-
-        [Header("Auto-Level")]
-        [Tooltip("When velocity is near zero the ship automatically snaps level (pitch = 0, roll = 0).")]
-        public bool autoLevel = true;
-
-        [Tooltip("Speed threshold (m/s) below which auto-level activates.")]
-        public float autoLevelSpeedThreshold = 1f;
-
-        [Tooltip("Rotation rate (°/s) used for both the idle auto-level and the manual horizon reset (R3).")]
+        [Header("Horizon Reset / Auto-Level")]
+        [Tooltip("Rotation rate (°/s) for both the R3 manual snap and the idle auto-level.")]
         public float autoLevelSpeed = 120f;
+
+        [Tooltip("Speed threshold (m/s) below which the ship auto-levels — only when not braking.")]
+        public float autoLevelSpeedThreshold = 1f;
 
         [Header("Barrel Roll")]
         [Tooltip("Time in seconds to complete a full 360° barrel roll.")]
@@ -131,6 +128,8 @@ namespace SpaceMayhem
         Vector3 _rotationInput;  // degrees this frame (already source-scaled by SpaceshipInput)
         bool  _wasBraking;
         float _brakePressure;    // 0 → 1, builds while brake is held, resets on release
+        bool  _brakeAboveThreshold; // was entry speed above brakeThresholdSpeed?
+        float _brakeEntrySpeed;     // speed captured at the moment brake was first pressed
 
         // Reused buffer for DepenetrateFromWorld — avoids per-frame GC allocation.
         static readonly Collider[] _overlapBuffer = new Collider[16];
@@ -204,23 +203,21 @@ namespace SpaceMayhem
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
 
-            // ── Brake release ─────────────────────────────────────────────────
-            if (_wasBraking && !isBraking)
+            // ── Brake press — record entry speed and whether above threshold ──
+            if (!_wasBraking && isBraking)
             {
-                if (_brakePressure > 0.05f && momentum != null)
-                {
-                    // Charged release: smoothly ramp velocity to the boosted peak over
-                    // boostSnapDuration (smoothstep curve), then normal drag takes over.
-                    // This gives a burst feeling — velocity builds then bleeds off —
-                    // rather than an instant dash.
-                    Vector3 boostTarget = transform.forward * (brakeBoostForce * _brakePressure);
-                    momentum.StartBoost(currentVelocity, boostTarget, boostSnapDuration);
-                }
-                else if (momentum != null)
-                {
-                    // Uncharged tap: regular momentum redirect toward new facing.
-                    momentum.StartRedirect(currentVelocity, transform.forward, momentumCarryover, redirectBlendDuration);
-                }
+                _brakeEntrySpeed    = currentVelocity.magnitude;
+                _brakeAboveThreshold = _brakeEntrySpeed >= brakeThresholdSpeed;
+            }
+
+            // ── Brake release ─────────────────────────────────────────────────
+            if (_wasBraking && !isBraking && momentum != null)
+            {
+                // Above threshold → reward (multiplier > 1, net speed gain).
+                // Below threshold → punishment (multiplier < 1, you exit slower).
+                float multiplier = _brakeAboveThreshold ? boostMultiplier : brakePenaltyMultiplier;
+                float boostSpeed = _brakeEntrySpeed * multiplier * _brakePressure;
+                momentum.StartBoost(currentVelocity, transform.forward * boostSpeed, boostSnapDuration);
             }
             _wasBraking = isBraking;
 
@@ -249,6 +246,21 @@ namespace SpaceMayhem
                 }
             }
 
+            // ── Auto-level at rest (not braking) ─────────────────────────────
+            // Gently snaps to horizon when the ship coasts to a natural stop.
+            // Suppressed while braking so the player can hold a new heading.
+            if (!isBraking && !_isBarrelRolling && !_isResettingHorizon &&
+                currentVelocity.magnitude < autoLevelSpeedThreshold)
+            {
+                Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+                if (flatFwd.sqrMagnitude > 1e-4f)
+                {
+                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, Vector3.up);
+                    transform.rotation = Quaternion.RotateTowards(
+                        transform.rotation, levelTarget, autoLevelSpeed * dt);
+                }
+            }
+
             // ── Horizon reset (R3) ────────────────────────────────────────────
             // Rotates toward world-level at autoLevelSpeed each frame.
             // Target is recomputed from the current forward so the player can still
@@ -271,23 +283,8 @@ namespace SpaceMayhem
                 }
             }
 
-            // ── Auto-level at rest ────────────────────────────────────────────
-            // Only active when nearly stopped; gives a gentle nudge back to
-            // horizon when the ship coasts to zero instead of floating tilted.
-            if (autoLevel && !_isBarrelRolling && !_isResettingHorizon &&
-                currentVelocity.magnitude < autoLevelSpeedThreshold)
-            {
-                Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
-                if (flatFwd.sqrMagnitude > 1e-4f)
-                {
-                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, Vector3.up);
-                    transform.rotation = Quaternion.RotateTowards(
-                        transform.rotation, levelTarget, autoLevelSpeed * dt);
-                }
-            }
-
             // ── Brake pressure ────────────────────────────────────────────────
-            // Ramps 0 → 1 while held, snaps to 0 on release so each press starts fresh.
+            // Ramps 0 → 1 while held, resets on release.
             if (isBraking)
                 _brakePressure = Mathf.MoveTowards(_brakePressure, 1f, brakeBuildUp * dt);
             else
