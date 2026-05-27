@@ -13,9 +13,9 @@ namespace SpaceMayhem
     ///     Convert to degrees-per-frame via × gamepadLookSpeed × Time.deltaTime.
     ///
     /// Gamepad layout
-    ///   Left stick X      yaw left/right
+    ///   Left stick X      strafe left/right
     ///   Left stick Y      elevate up/down (hover)
-    ///   Right stick X     strafe left/right
+    ///   Right stick X     yaw left/right
     ///   Right stick Y     pitch nose up/down (tilt)
     ///   Right trigger     forward thrust
     ///   Left trigger      reverse thrust

@@ -1,4 +1,5 @@
 {
+    "version": 1,
     "name": "SpaceshipInputActions",
     "maps": [
         {
@@ -151,9 +152,9 @@
                 {
                     "name": "",
                     "id": "3a000000-0000-0000-0000-000000000063",
-                    "path": "<Gamepad>/rightStick/x",
+                    "path": "<Gamepad>/leftStick/x",
                     "interactions": "",
-                    "processors": "axisDeadzone(min=0.125,max=0.95)",
+                    "processors": "axisDeadzone(min=0.125,max=0.95);axisDeadzone(min=0.125,max=0.95)",
                     "groups": ";Gamepad",
                     "action": "StrafeX",
                     "isComposite": false,
@@ -250,9 +251,9 @@
                 {
                     "name": "",
                     "id": "3a000000-0000-0000-0000-000000000102",
-                    "path": "<Gamepad>/leftStick/x",
+                    "path": "<Gamepad>/rightStick/x",
                     "interactions": "",
-                    "processors": "axisDeadzone(min=0.15,max=0.95)",
+                    "processors": "axisDeadzone(min=0.15,max=0.95);axisDeadzone(min=0.15,max=0.95)",
                     "groups": ";Gamepad",
                     "action": "LookYawPad",
                     "isComposite": false,
