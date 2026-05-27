@@ -60,13 +60,40 @@
                     "initialStateCheck": true
                 },
                 {
-                    "name": "Roll",
-                    "type": "Value",
-                    "id": "2a000000-0000-0000-0000-000000000003",
-                    "expectedControlType": "Axis",
+                    "name": "BarrelRollLeft",
+                    "type": "Button",
+                    "id": "2a000000-0000-0000-0000-000000000020",
+                    "expectedControlType": "Button",
                     "processors": "",
                     "interactions": "",
-                    "initialStateCheck": true
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "BarrelRollRight",
+                    "type": "Button",
+                    "id": "2a000000-0000-0000-0000-000000000021",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "BarrelRollUp",
+                    "type": "Button",
+                    "id": "2a000000-0000-0000-0000-000000000022",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "BarrelRollDown",
+                    "type": "Button",
+                    "id": "2a000000-0000-0000-0000-000000000023",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
                 },
                 {
                     "name": "StrafeVertical",
@@ -243,70 +270,92 @@
                     "isPartOfComposite": false
                 },
                 {
-                    "name": "Roll1D",
-                    "id": "3a000000-0000-0000-0000-000000000030",
-                    "path": "1DAxis",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Roll",
-                    "isComposite": true,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "negative",
-                    "id": "3a000000-0000-0000-0000-000000000031",
+                    "name": "",
+                    "id": "3a000000-0000-0000-0000-000000000080",
                     "path": "<Keyboard>/q",
                     "interactions": "",
                     "processors": "",
                     "groups": ";Keyboard&Mouse",
-                    "action": "Roll",
+                    "action": "BarrelRollLeft",
                     "isComposite": false,
-                    "isPartOfComposite": true
+                    "isPartOfComposite": false
                 },
                 {
-                    "name": "positive",
-                    "id": "3a000000-0000-0000-0000-000000000032",
+                    "name": "",
+                    "id": "3a000000-0000-0000-0000-000000000081",
+                    "path": "<Gamepad>/dpad/left",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": ";Gamepad",
+                    "action": "BarrelRollLeft",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "3a000000-0000-0000-0000-000000000082",
                     "path": "<Keyboard>/e",
                     "interactions": "",
                     "processors": "",
                     "groups": ";Keyboard&Mouse",
-                    "action": "Roll",
+                    "action": "BarrelRollRight",
                     "isComposite": false,
-                    "isPartOfComposite": true
-                },
-                {
-                    "name": "RollPad",
-                    "id": "3a000000-0000-0000-0000-000000000033",
-                    "path": "1DAxis",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Roll",
-                    "isComposite": true,
                     "isPartOfComposite": false
                 },
                 {
-                    "name": "negative",
-                    "id": "3a000000-0000-0000-0000-000000000034",
-                    "path": "<Gamepad>/leftShoulder",
+                    "name": "",
+                    "id": "3a000000-0000-0000-0000-000000000083",
+                    "path": "<Gamepad>/dpad/right",
                     "interactions": "",
                     "processors": "",
                     "groups": ";Gamepad",
-                    "action": "Roll",
+                    "action": "BarrelRollRight",
                     "isComposite": false,
-                    "isPartOfComposite": true
+                    "isPartOfComposite": false
                 },
                 {
-                    "name": "positive",
-                    "id": "3a000000-0000-0000-0000-000000000035",
-                    "path": "<Gamepad>/rightShoulder",
+                    "name": "",
+                    "id": "3a000000-0000-0000-0000-000000000084",
+                    "path": "<Keyboard>/upArrow",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": ";Keyboard&Mouse",
+                    "action": "BarrelRollUp",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "3a000000-0000-0000-0000-000000000085",
+                    "path": "<Gamepad>/dpad/up",
                     "interactions": "",
                     "processors": "",
                     "groups": ";Gamepad",
-                    "action": "Roll",
+                    "action": "BarrelRollUp",
                     "isComposite": false,
-                    "isPartOfComposite": true
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "3a000000-0000-0000-0000-000000000086",
+                    "path": "<Keyboard>/downArrow",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": ";Keyboard&Mouse",
+                    "action": "BarrelRollDown",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "3a000000-0000-0000-0000-000000000087",
+                    "path": "<Gamepad>/dpad/down",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": ";Gamepad",
+                    "action": "BarrelRollDown",
+                    "isComposite": false,
+                    "isPartOfComposite": false
                 },
                 {
                     "name": "StrafeV",

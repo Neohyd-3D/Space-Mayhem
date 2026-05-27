@@ -43,6 +43,16 @@ namespace SpaceMayhem
         [Tooltip("Rate at which personalTimescale eases toward its target (per second).")]
         public float brakeExitSmoothing = 5f;
 
+        [Header("Barrel Roll")]
+        [Tooltip("Time in seconds to complete a full 360° barrel roll.")]
+        public float barrelRollDuration = 0.45f;
+
+        [Tooltip("Minimum time between barrel rolls (seconds). Prevents spam.")]
+        public float barrelRollCooldown = 0.6f;
+
+        [Tooltip("Instantaneous sideways velocity impulse (m/s) applied at roll start. Drag bleeds it off naturally.")]
+        public float barrelRollDashForce = 25f;
+
         [Header("Visual Tilt")]
         [Tooltip("Child transform that holds the visible mesh. Will be banked/pitched based on lateral velocity. Leave null to disable tilt.")]
         public Transform visualMesh;
@@ -73,6 +83,15 @@ namespace SpaceMayhem
         Vector3 _rotationInput;  // degrees this frame (already source-scaled by SpaceshipInput)
         bool _wasBraking;
 
+        // Barrel roll state
+        bool    _isBarrelRolling;
+        float   _barrelRollTimer;        // 0 → barrelRollDuration
+        float   _barrelRollDirection;    // +1 = left/up, -1 = right/down
+        float   _barrelRollCooldownTimer;
+        Vector3 _barrelRollAxis;         // local-space axis: Vector3.forward (left/right), Vector3.right (up/down)
+
+        public bool IsBarrelRolling => _isBarrelRolling;
+
         void Awake()
         {
             if (momentum == null) momentum = GetComponent<MomentumSystem>();
@@ -86,6 +105,32 @@ namespace SpaceMayhem
             _thrustInput = Vector3.ClampMagnitude(thrust, 1f);
             _rotationInput = rotation;
             isBraking = braking;
+        }
+
+        // direction: +1 = roll left / roll up,  -1 = roll right / roll down.
+        // localAxis:  Vector3.forward  → left/right barrel roll (rotates around ship's nose)
+        //             Vector3.right    → up/down barrel roll    (rotates around ship's wing axis)
+        // Ignored if a roll is already in progress or on cooldown.
+        public void TriggerBarrelRoll(float direction, Vector3 localAxis)
+        {
+            if (_isBarrelRolling || _barrelRollCooldownTimer > 0f) return;
+            _isBarrelRolling     = true;
+            _barrelRollTimer     = 0f;
+            _barrelRollDirection = Mathf.Sign(direction);
+            _barrelRollAxis      = localAxis;
+
+            // Instantaneous dash impulse perpendicular to the roll axis.
+            // Left/right roll (axis = forward): dash along local X.
+            //   +direction = roll left  → dash local -X (leftward)
+            //   -direction = roll right → dash local +X (rightward)
+            // Up/down roll (axis = right): dash along local Y.
+            //   +direction = roll up   → dash local +Y (upward)
+            //   -direction = roll down → dash local -Y (downward)
+            // Drag bleeds the impulse off naturally over time.
+            if (localAxis == Vector3.forward)
+                currentVelocity += transform.right * (-_barrelRollDirection * barrelRollDashForce);
+            else
+                currentVelocity += transform.up * (_barrelRollDirection * barrelRollDashForce);
         }
 
         void Update()
@@ -104,9 +149,29 @@ namespace SpaceMayhem
             // Rotation FIRST — using current frame's orientation for the thrust direction
             // makes thrust feel "stuck to the nose" without lag. Rotation input is already
             // in degrees this frame (computed by SpaceshipInput from mouse-delta or stick×dt).
-            if (Mathf.Abs(_rotationInput.x) > 1e-5f) transform.Rotate(Vector3.right,   _rotationInput.x, Space.Self);
-            if (Mathf.Abs(_rotationInput.y) > 1e-5f) transform.Rotate(Vector3.up,      _rotationInput.y, Space.Self);
-            if (Mathf.Abs(_rotationInput.z) > 1e-5f) transform.Rotate(Vector3.forward, _rotationInput.z, Space.Self);
+            if (Mathf.Abs(_rotationInput.x) > 1e-5f) transform.Rotate(Vector3.right, _rotationInput.x, Space.Self);
+            if (Mathf.Abs(_rotationInput.y) > 1e-5f) transform.Rotate(Vector3.up,    _rotationInput.y, Space.Self);
+
+            // Barrel roll — smoothstepped 360° over barrelRollDuration, full speed regardless of timescale.
+            if (_barrelRollCooldownTimer > 0f) _barrelRollCooldownTimer -= dt;
+            if (_isBarrelRolling)
+            {
+                float prevT = Mathf.Clamp01(_barrelRollTimer / barrelRollDuration);
+                _barrelRollTimer += dt;
+                float nextT = Mathf.Clamp01(_barrelRollTimer / barrelRollDuration);
+
+                // SmoothStep gives ease-in/out so the roll feels snappy, not mechanical.
+                float deltaAngle = (Mathf.SmoothStep(0f, 360f, nextT)
+                                  - Mathf.SmoothStep(0f, 360f, prevT))
+                                  * _barrelRollDirection;
+                transform.Rotate(_barrelRollAxis, deltaAngle, Space.Self);
+
+                if (_barrelRollTimer >= barrelRollDuration)
+                {
+                    _isBarrelRolling       = false;
+                    _barrelRollCooldownTimer = barrelRollCooldown;
+                }
+            }
 
             // Velocity integration
             if (momentum != null && momentum.IsRedirecting)

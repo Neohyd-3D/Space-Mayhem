@@ -19,13 +19,18 @@ namespace SpaceMayhem
     ///   Right stick Y     pitch nose up/down (tilt)
     ///   Right trigger     forward thrust
     ///   Left trigger      reverse thrust
-    ///   L/R Bumper        roll
+    ///   D-pad ←           barrel roll left  (single committed 360°)
+    ///   D-pad →           barrel roll right (single committed 360°)
+    ///   D-pad ↑           barrel roll up    (nose over the top)
+    ///   D-pad ↓           barrel roll down  (nose goes under)
     ///   South             brake
     ///
     /// Keyboard/Mouse
     ///   WASD              thrust + strafe
     ///   R/F               elevate
-    ///   Q/E               roll
+    ///   Q                 barrel roll left  (single committed 360°)
+    ///   E                 barrel roll right (single committed 360°)
+    ///   ↑ / ↓ arrows      barrel roll up / down
     ///   Mouse XY          yaw/pitch
     ///   Space             brake
     /// </summary>
@@ -44,10 +49,6 @@ namespace SpaceMayhem
         [Tooltip("Maximum rotation rate at full stick deflection (degrees/second).")]
         public float gamepadLookSpeed = 140f;
 
-        [Header("Roll")]
-        [Tooltip("Maximum roll rate at full input (degrees/second). Applies to both keyboard Q/E and gamepad bumpers.")]
-        public float rollSpeed = 120f;
-
         [Header("Safety")]
         [Tooltip("Hard cap on per-frame look magnitude (degrees). Prevents spikes from focus-change mouse jumps.")]
         public float maxLookDegreesPerFrame = 25f;
@@ -63,7 +64,10 @@ namespace SpaceMayhem
         InputAction _lookPitchMouse;
         InputAction _lookYawPad;
         InputAction _lookPitchPad;
-        InputAction _roll;
+        InputAction _barrelRollLeft;
+        InputAction _barrelRollRight;
+        InputAction _barrelRollUp;
+        InputAction _barrelRollDown;
         InputAction _strafeVertical;
         InputAction _brake;
 
@@ -84,10 +88,13 @@ namespace SpaceMayhem
             _thrustZ        = map.FindAction("ThrustZ",        throwIfNotFound: true);
             _lookYawMouse   = map.FindAction("LookYawMouse",   throwIfNotFound: true);
             _lookPitchMouse = map.FindAction("LookPitchMouse", throwIfNotFound: true);
-            _lookYawPad     = map.FindAction("LookYawPad",     throwIfNotFound: true);
-            _lookPitchPad   = map.FindAction("LookPitchPad",   throwIfNotFound: true);
-            _roll           = map.FindAction("Roll",           throwIfNotFound: true);
-            _strafeVertical = map.FindAction("StrafeVertical", throwIfNotFound: true);
+            _lookYawPad      = map.FindAction("LookYawPad",       throwIfNotFound: true);
+            _lookPitchPad    = map.FindAction("LookPitchPad",     throwIfNotFound: true);
+            _barrelRollLeft  = map.FindAction("BarrelRollLeft",   throwIfNotFound: true);
+            _barrelRollRight = map.FindAction("BarrelRollRight",  throwIfNotFound: true);
+            _barrelRollUp    = map.FindAction("BarrelRollUp",     throwIfNotFound: true);
+            _barrelRollDown  = map.FindAction("BarrelRollDown",   throwIfNotFound: true);
+            _strafeVertical  = map.FindAction("StrafeVertical",   throwIfNotFound: true);
             _brake          = map.FindAction("Brake",          throwIfNotFound: true);
         }
 
@@ -118,7 +125,10 @@ namespace SpaceMayhem
                 _lookPitchMouse.ReadValue<float>();
                 _lookYawPad.ReadValue<float>();
                 _lookPitchPad.ReadValue<float>();
-                _roll.ReadValue<float>();
+                _barrelRollLeft.IsPressed();
+                _barrelRollRight.IsPressed();
+                _barrelRollUp.IsPressed();
+                _barrelRollDown.IsPressed();
                 _strafeVertical.ReadValue<float>();
                 _brake.IsPressed();
                 _controller.ApplyInput(Vector3.zero, Vector3.zero, false);
@@ -128,8 +138,15 @@ namespace SpaceMayhem
             float strafeX = _strafeX.ReadValue<float>();
             float thrustZ = _thrustZ.ReadValue<float>();
             float strafeV = _strafeVertical.ReadValue<float>();
-            float roll    = _roll.ReadValue<float>();
             bool  braking = _brake.IsPressed();
+
+            // Barrel roll — fires once per press, never on hold
+            // Left/right: rotate around local Z (ship's nose axis)
+            // Up/down:    rotate around local X (ship's wing axis)
+            if (_barrelRollLeft.WasPressedThisFrame())  _controller.TriggerBarrelRoll( 1f, Vector3.forward);
+            if (_barrelRollRight.WasPressedThisFrame()) _controller.TriggerBarrelRoll(-1f, Vector3.forward);
+            if (_barrelRollUp.WasPressedThisFrame())    _controller.TriggerBarrelRoll( 1f, Vector3.right);
+            if (_barrelRollDown.WasPressedThisFrame())  _controller.TriggerBarrelRoll(-1f, Vector3.right);
 
             // --- LOOK: combine mouse-delta + gamepad-rate into degrees-this-frame ---
             float mouseYawPx   = _lookYawMouse.ReadValue<float>();    // pixels this frame
@@ -145,16 +162,14 @@ namespace SpaceMayhem
             yawDeg   = Mathf.Clamp(yawDeg,   -maxLookDegreesPerFrame, maxLookDegreesPerFrame);
             pitchDeg = Mathf.Clamp(pitchDeg, -maxLookDegreesPerFrame, maxLookDegreesPerFrame);
 
-            float rollDeg = roll * rollSpeed * dt;
-
             // Local-space thrust: x = strafe, y = elevate, z = forward/back
             Vector3 thrust = new Vector3(strafeX, strafeV, thrustZ);
 
             // Rotation in absolute degrees this frame:
             //   x = pitch (negated so mouse-up / stick-up = nose UP)
             //   y = yaw   (positive = turn right)
-            //   z = roll  (negated so Q / L-bumper = roll left)
-            Vector3 rotation = new Vector3(-pitchDeg, yawDeg, -rollDeg);
+            //   z = 0     (roll is now a triggered barrel roll, not a continuous axis)
+            Vector3 rotation = new Vector3(-pitchDeg, yawDeg, 0f);
 
             _controller.ApplyInput(thrust, rotation, braking);
         }

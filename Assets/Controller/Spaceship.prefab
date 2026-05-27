@@ -54,6 +54,9 @@ MonoBehaviour:
   momentumCarryover: 0.35
   redirectBlendDuration: 0.5
   brakeExitSmoothing: 5
+  barrelRollDuration: 0.45
+  barrelRollCooldown: 0.6
+  barrelRollDashForce: 25
   visualMesh: {fileID: 1000000011}
   strafeTilt: 20
   hoverTilt: 15
