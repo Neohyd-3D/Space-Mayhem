@@ -24,6 +24,7 @@ namespace SpaceMayhem
     ///   D-pad ↑           barrel roll up    (nose over the top)
     ///   D-pad ↓           barrel roll down  (nose goes under)
     ///   L1                brake
+    ///   R3 (right click)  horizon reset (snap to world-level)
     ///
     /// Keyboard/Mouse
     ///   WASD              thrust + strafe
@@ -33,6 +34,7 @@ namespace SpaceMayhem
     ///   ↑ / ↓ arrows      barrel roll up / down
     ///   Mouse XY          yaw/pitch
     ///   Space             brake
+    ///   Tab               horizon reset (snap to world-level)
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(SpaceshipController))]
@@ -70,6 +72,7 @@ namespace SpaceMayhem
         InputAction _barrelRollDown;
         InputAction _strafeVertical;
         InputAction _brake;
+        InputAction _horizonReset;
 
         int _framesUntilLive;
 
@@ -95,7 +98,10 @@ namespace SpaceMayhem
             _barrelRollUp    = map.FindAction("BarrelRollUp",     throwIfNotFound: true);
             _barrelRollDown  = map.FindAction("BarrelRollDown",   throwIfNotFound: true);
             _strafeVertical  = map.FindAction("StrafeVertical",   throwIfNotFound: true);
-            _brake          = map.FindAction("Brake",          throwIfNotFound: true);
+            _brake           = map.FindAction("Brake",           throwIfNotFound: true);
+            _horizonReset    = map.FindAction("HorizonReset",    throwIfNotFound: false);
+            if (_horizonReset == null)
+                Debug.LogWarning("[SpaceshipInput] 'HorizonReset' action not found — reimport SpaceshipInputActions.", this);
         }
 
         void OnEnable()
@@ -131,6 +137,7 @@ namespace SpaceMayhem
                 _barrelRollDown.IsPressed();
                 _strafeVertical.ReadValue<float>();
                 _brake.IsPressed();
+                _horizonReset?.IsPressed();
                 _controller.ApplyInput(Vector3.zero, Vector3.zero, false);
                 return;
             }
@@ -147,6 +154,9 @@ namespace SpaceMayhem
             if (_barrelRollRight.WasPressedThisFrame()) _controller.TriggerBarrelRoll(-1f, Vector3.forward);
             if (_barrelRollUp.WasPressedThisFrame())    _controller.TriggerBarrelRoll( 1f, Vector3.right);
             if (_barrelRollDown.WasPressedThisFrame())  _controller.TriggerBarrelRoll(-1f, Vector3.right);
+
+            // Horizon reset — R3 (right stick click) / Tab — snaps ship to world-level
+            if (_horizonReset != null && _horizonReset.WasPressedThisFrame()) _controller.TriggerHorizonReset();
 
             // --- LOOK: combine mouse-delta + gamepad-rate into degrees-this-frame ---
             float mouseYawPx   = _lookYawMouse.ReadValue<float>();    // pixels this frame

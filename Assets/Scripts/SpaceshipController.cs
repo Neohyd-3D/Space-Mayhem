@@ -72,26 +72,14 @@ namespace SpaceMayhem
         public float redirectBlendDuration = 0.5f;
 
         [Header("Auto-Level")]
-        [Tooltip("Constantly rotates the ship toward world-level (pitch = 0, roll = 0). " +
-                 "Strength scales with speed: full at rest, minimum at autoLevelFadeSpeed.")]
+        [Tooltip("When velocity is near zero the ship automatically snaps level (pitch = 0, roll = 0).")]
         public bool autoLevel = true;
 
-        [Tooltip("Max leveling rotation rate (°/s) when the ship is stationary.")]
-        public float autoLevelSpeed = 90f;
+        [Tooltip("Speed threshold (m/s) below which auto-level activates.")]
+        public float autoLevelSpeedThreshold = 1f;
 
-        [Tooltip("Ship speed (m/s) at which leveling strength reaches its minimum.")]
-        public float autoLevelFadeSpeed = 30f;
-
-        [Range(0f, 1f)]
-        [Tooltip("Leveling strength multiplier at autoLevelFadeSpeed and above. " +
-                 "0 = fully disabled at speed; 1 = always full strength regardless of speed.")]
-        public float autoLevelMinStrength = 0f;
-
-        [Range(0f, 1f)]
-        [Tooltip("How strongly auto-level corrects pitch (nose up/down). " +
-                 "0 = roll-only (pitch is never touched); 1 = full pitch + roll correction. " +
-                 "Low values let the player freely aim up/down while still snapping the horizon level.")]
-        public float autoLevelPitchStrength = 0.25f;
+        [Tooltip("Rotation rate (°/s) used for both the idle auto-level and the manual horizon reset (R3).")]
+        public float autoLevelSpeed = 120f;
 
         [Header("Barrel Roll")]
         [Tooltip("Time in seconds to complete a full 360° barrel roll.")]
@@ -160,6 +148,11 @@ namespace SpaceMayhem
 
         public bool IsBarrelRolling => _isBarrelRolling;
 
+        // Horizon reset state (R3 manual snap)
+        bool _isResettingHorizon;
+
+        public bool IsResettingHorizon => _isResettingHorizon;
+
         void Awake()
         {
             if (momentum == null) momentum = GetComponent<MomentumSystem>();
@@ -196,6 +189,14 @@ namespace SpaceMayhem
                 currentVelocity += transform.right * (-_barrelRollDirection * barrelRollDashForce);
             else
                 currentVelocity += transform.up * (_barrelRollDirection * barrelRollDashForce);
+        }
+
+        // Activates the horizon reset. SpaceshipInput calls this on R3 press.
+        // Ignored during a barrel roll.
+        public void TriggerHorizonReset()
+        {
+            if (_isBarrelRolling) return;
+            _isResettingHorizon = true;
         }
 
         void Update()
@@ -248,37 +249,40 @@ namespace SpaceMayhem
                 }
             }
 
-            // ── Auto-level ────────────────────────────────────────────────────
-            // Suppressed during barrel rolls. Strength fades with speed so fast
-            // flight feels free; braking naturally slows the ship and raises strength.
-            if (autoLevel && !_isBarrelRolling)
+            // ── Horizon reset (R3) ────────────────────────────────────────────
+            // Rotates toward world-level at autoLevelSpeed each frame.
+            // Target is recomputed from the current forward so the player can still
+            // steer during the snap and the reset tracks their heading.
+            // Completes when within 0.5° of level.
+            if (_isResettingHorizon)
             {
                 Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
                 if (flatFwd.sqrMagnitude > 1e-4f)
                 {
-                    // Roll-only target: keeps current pitch, only corrects bank.
-                    // Full-level target: corrects both pitch and roll.
-                    // autoLevelPitchStrength blends between them so pitch correction
-                    // can be dialled down independently of roll correction.
-                    Quaternion rollOnlyLevel = Quaternion.LookRotation(transform.forward, Vector3.up);
-                    Quaternion fullLevel     = Quaternion.LookRotation(flatFwd.normalized, Vector3.up);
-                    Quaternion levelTarget   = Quaternion.Slerp(rollOnlyLevel, fullLevel, autoLevelPitchStrength);
-
-                    // Braking forces full-strength leveling regardless of speed —
-                    // the ship actively snaps to horizon while the player charges the boost.
-                    float strength;
-                    if (isBraking)
-                    {
-                        strength = 1f;
-                    }
-                    else
-                    {
-                        float speedFraction = Mathf.Clamp01(
-                            currentVelocity.magnitude / Mathf.Max(0.01f, autoLevelFadeSpeed));
-                        strength = Mathf.Lerp(1f, autoLevelMinStrength, speedFraction);
-                    }
+                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, Vector3.up);
                     transform.rotation = Quaternion.RotateTowards(
-                        transform.rotation, levelTarget, autoLevelSpeed * strength * dt);
+                        transform.rotation, levelTarget, autoLevelSpeed * dt);
+                    if (Quaternion.Angle(transform.rotation, levelTarget) < 0.5f)
+                        _isResettingHorizon = false;
+                }
+                else
+                {
+                    _isResettingHorizon = false;
+                }
+            }
+
+            // ── Auto-level at rest ────────────────────────────────────────────
+            // Only active when nearly stopped; gives a gentle nudge back to
+            // horizon when the ship coasts to zero instead of floating tilted.
+            if (autoLevel && !_isBarrelRolling && !_isResettingHorizon &&
+                currentVelocity.magnitude < autoLevelSpeedThreshold)
+            {
+                Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+                if (flatFwd.sqrMagnitude > 1e-4f)
+                {
+                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, Vector3.up);
+                    transform.rotation = Quaternion.RotateTowards(
+                        transform.rotation, levelTarget, autoLevelSpeed * dt);
                 }
             }
 
