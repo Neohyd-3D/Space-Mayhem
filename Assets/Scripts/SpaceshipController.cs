@@ -89,6 +89,27 @@ namespace SpaceMayhem
                  "0.3 = 30% of normal turn rate at full cruising speed.")]
         public float minTurnFactor = 0.3f;
 
+        [Header("Turn / Drift Steering")]
+        [Tooltip("How strongly the ship's momentum follows its heading (1/s) at low speed " +
+                 "when NOT strafing. High = responsive, tight steering with almost no slip. " +
+                 "This is the directional grip on the velocity vector — yaw-plane only.")]
+        public float steeringGripLow = 8f;
+
+        [Tooltip("Momentum-follow grip (1/s) at turnResistanceMaxSpeed when NOT strafing. " +
+                 "Keep fairly high so a pure yaw is a tight, committed turn even at speed. " +
+                 "Steady-state slip ≈ yawRate / grip. Strafing scales this down via driftGripScale.")]
+        public float steeringGripHigh = 4f;
+
+        [Range(0f, 1f)]
+        [Tooltip("Fraction of steering grip that remains at full strafe deflection. " +
+                 "Strafing 'breaks' directional grip to open the drift; releasing it restores grip " +
+                 "and the turn tightens back up. 0.3 = full strafe cuts grip to 30% (drift opens).")]
+        public float driftGripScale = 0.3f;
+
+        [Tooltip("Speed (m/s) below which steering is disabled. Guards the zero-speed direction " +
+                 "singularity; keep just above autoLevelSpeedThreshold so the two never overlap.")]
+        public float steeringMinSpeed = 1.5f;
+
         [Header("Horizon Reset / Auto-Level")]
         [Tooltip("Rotation rate (°/s) for both the R3 manual snap and the idle auto-level.")]
         public float autoLevelSpeed = 120f;
@@ -364,15 +385,50 @@ namespace SpaceMayhem
                 // (the real culprit) is gated on input below.
                 currentVelocity *= Mathf.Exp(-linearDrag * dt);
 
-                // Quadratic drag on strafe/hover.
-                // Strafe drag is always active (not gated on input) so lateral velocity
-                // accumulated from yawing has a natural equilibrium to settle toward.
-                // Hover drag remains input-gated — vertical drift is less meaningful in a racer.
+                // Quadratic drag on strafe/hover — gated on active input only.
+                // This is the strafe/hover TERMINAL-VELOCITY cap (terminal ≈ sqrt(thrust/drag)),
+                // not a drift mechanism. Gated on input so it never bleeds the lateral momentum
+                // that yawing produces — momentum steering (below) owns that axis instead.
                 Vector3 localVel = transform.InverseTransformDirection(currentVelocity);
-                localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
+                if (Mathf.Abs(_thrustInput.x) > 1e-5f)
+                    localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
                 if (Mathf.Abs(_thrustInput.y) > 1e-5f)
                     localVel.y -= hoverDrag  * localVel.y * Mathf.Abs(localVel.y) * dt;
                 currentVelocity = transform.TransformDirection(localVel);
+
+                // ── Momentum steering (yaw-plane drift) ──────────────────────────
+                // Rotate the HORIZONTAL velocity toward the ship's horizontal heading,
+                // preserving its magnitude (Slerp between equal-length vectors). The vertical
+                // component is left untouched so hover/climb is unaffected.
+                //
+                // Proportional, not constant-rate: the closing rate grows with the slip angle,
+                // so a STABLE equilibrium slip forms — yaw opens it, steering holds it. Grip
+                // falls with speed (steeringGripLow → steeringGripHigh), so drift naturally
+                // opens at racing speed. Forward thrust also closes slip, so throttle modulates
+                // the drift angle for free (ease off = wider, punch it = tighter / power out).
+                float horizSpeed = new Vector3(currentVelocity.x, 0f, currentVelocity.z).magnitude;
+                Vector3 horizFwd  = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+                if (!_isBarrelRolling && horizSpeed >= steeringMinSpeed && horizFwd.sqrMagnitude > 1e-4f)
+                {
+                    horizFwd.Normalize();
+                    Vector3 horizVel    = new Vector3(currentVelocity.x, 0f, currentVelocity.z);
+                    Vector3 horizVelDir = horizVel / horizSpeed;
+
+                    // Forward-hemisphere fade: full grip when aligned, fading to zero by 90° of
+                    // slip, zero when reversing. Smoothly sidesteps the antiparallel Slerp
+                    // singularity instead of a hard cutoff.
+                    float hemisphere = Mathf.Clamp01(Vector3.Dot(horizVelDir, horizFwd));
+                    float gripBase   = Mathf.Lerp(steeringGripLow, steeringGripHigh, speedT);
+                    // Strafing breaks directional grip → drift opens; release → grip restores → turn tightens.
+                    float grip       = gripBase * Mathf.Lerp(1f, driftGripScale, Mathf.Abs(_thrustInput.x)) * hemisphere;
+
+                    if (grip > 1e-5f)
+                    {
+                        float steerT = 1f - Mathf.Exp(-grip * dt);
+                        Vector3 steered = Vector3.Slerp(horizVel, horizFwd * horizSpeed, steerT);
+                        currentVelocity = steered + Vector3.up * currentVelocity.y;
+                    }
+                }
 
                 // Braking: linear deceleration toward zero, scaled by pressure.
                 // MoveTowards (unlike exponential drag) can reach an exact full stop.
