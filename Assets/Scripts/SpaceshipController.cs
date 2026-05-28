@@ -355,12 +355,29 @@ namespace SpaceMayhem
 
         void DepenetrateFromWorld()
         {
+            // Broad-phase first — skip SyncTransforms entirely if nothing is nearby.
+            // This avoids the expensive all-transforms sync every frame when flying
+            // in open air, which was causing periodic frame hitches.
+            Bounds b0     = shipCollider.bounds;
+            float  radius = b0.extents.magnitude;
+            int broadHits = Physics.OverlapSphereNonAlloc(
+                b0.center, radius, _overlapBuffer,
+                collisionMask, QueryTriggerInteraction.Ignore);
+
+            bool anyNearby = false;
+            for (int i = 0; i < broadHits; i++)
+            {
+                if (!_ownColliders.Contains(_overlapBuffer[i]) && !_overlapBuffer[i].isTrigger)
+                { anyNearby = true; break; }
+            }
+            if (!anyNearby) return;
+
             Physics.SyncTransforms();
 
             for (int iter = 0; iter < depenetrationIterations; iter++)
             {
                 Bounds b      = shipCollider.bounds;
-                float  radius = b.extents.magnitude;
+                radius = b.extents.magnitude;
 
                 int hits = Physics.OverlapSphereNonAlloc(
                     b.center, radius, _overlapBuffer,
