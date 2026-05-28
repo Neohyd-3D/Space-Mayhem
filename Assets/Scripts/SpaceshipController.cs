@@ -71,6 +71,13 @@ namespace SpaceMayhem
                  "Short (0.15–0.25) = snappy burst. Longer = rocket-like thrust.")]
         public float boostSnapDuration = 0.2f;
 
+        [Header("Rotation")]
+        [Range(0f, 1f)]
+        [Tooltip("Turn authority at maximum speed, as a fraction of full authority. " +
+                 "Scales quadratically with speed so low-speed handling is barely affected " +
+                 "but high-speed turning feels heavy. 0.3 = 30% of normal turn rate at max speed.")]
+        public float minTurnFactor = 0.3f;
+
         [Header("Horizon Reset / Auto-Level")]
         [Tooltip("Rotation rate (°/s) for both the R3 manual snap and the idle auto-level.")]
         public float autoLevelSpeed = 120f;
@@ -244,8 +251,16 @@ namespace SpaceMayhem
 
             // ── Rotation ──────────────────────────────────────────────────────
             // Applied before velocity so thrust feels immediately "stuck to the nose".
-            if (Mathf.Abs(_rotationInput.x) > 1e-5f) transform.Rotate(Vector3.right, _rotationInput.x, Space.Self);
-            if (Mathf.Abs(_rotationInput.y) > 1e-5f) transform.Rotate(Vector3.up,    _rotationInput.y, Space.Self);
+            // Turn authority drops quadratically with speed: full at rest, minTurnFactor
+            // at maxSpeed. Quadratic keeps low-speed handling snappy while making
+            // high-speed turns feel appropriately heavy.
+            float speedT      = Mathf.Clamp01(currentVelocity.magnitude / Mathf.Max(1f, maxSpeed));
+            float turnFactor  = Mathf.Lerp(1f, minTurnFactor, speedT * speedT);
+            float scaledPitch = _rotationInput.x * turnFactor;
+            float scaledYaw   = _rotationInput.y * turnFactor;
+
+            if (Mathf.Abs(scaledPitch) > 1e-5f) transform.Rotate(Vector3.right, scaledPitch, Space.Self);
+            if (Mathf.Abs(scaledYaw)   > 1e-5f) transform.Rotate(Vector3.up,    scaledYaw,   Space.Self);
 
             // ── Barrel roll ───────────────────────────────────────────────────
             if (_barrelRollCooldownTimer > 0f) _barrelRollCooldownTimer -= dt;
@@ -331,11 +346,17 @@ namespace SpaceMayhem
                 // Base exponential drag always runs.
                 currentVelocity *= Mathf.Exp(-linearDrag * dt);
 
-                // Quadratic drag on strafe (X) and hover (Y) velocity in local space.
-                // Force = drag × v² — nearly zero at low speed, ramps hard at high speed.
+                // Quadratic drag on strafe (X) and hover (Y) — gated on active input only.
+                // Without this gate, yawing rotates the ship under its world-space velocity,
+                // making forward momentum appear as local-X strafe, which the drag would then
+                // kill. Gating on input means only player-driven lateral movement is resisted;
+                // turning preserves momentum (Newtonian), so speed-dependent turn resistance
+                // actually has something to work against.
                 Vector3 localVel = transform.InverseTransformDirection(currentVelocity);
-                localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
-                localVel.y -= hoverDrag  * localVel.y * Mathf.Abs(localVel.y) * dt;
+                if (Mathf.Abs(_thrustInput.x) > 1e-5f)
+                    localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
+                if (Mathf.Abs(_thrustInput.y) > 1e-5f)
+                    localVel.y -= hoverDrag  * localVel.y * Mathf.Abs(localVel.y) * dt;
                 currentVelocity = transform.TransformDirection(localVel);
 
                 // Braking: linear deceleration toward zero, scaled by pressure.

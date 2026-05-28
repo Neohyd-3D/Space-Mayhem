@@ -1,5 +1,5 @@
 using UnityEngine;
-
+/*
 namespace SpaceMayhem
 {
     /// <summary>
@@ -9,7 +9,7 @@ namespace SpaceMayhem
     static class AppSettings
     {
         // Set to 60, 90, 120, 144, or -1 for uncapped.
-        const int TargetFrameRate = 60;
+        const int TargetFrameRate = 120;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Apply()
@@ -20,3 +20,4 @@ namespace SpaceMayhem
         }
     }
 }
+*/
