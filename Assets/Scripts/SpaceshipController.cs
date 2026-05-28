@@ -364,10 +364,12 @@ namespace SpaceMayhem
                 // (the real culprit) is gated on input below.
                 currentVelocity *= Mathf.Exp(-linearDrag * dt);
 
-                // Quadratic drag on strafe/hover — gated on active input only.
+                // Quadratic drag on strafe/hover.
+                // Strafe drag is always active (not gated on input) so lateral velocity
+                // accumulated from yawing has a natural equilibrium to settle toward.
+                // Hover drag remains input-gated — vertical drift is less meaningful in a racer.
                 Vector3 localVel = transform.InverseTransformDirection(currentVelocity);
-                if (Mathf.Abs(_thrustInput.x) > 1e-5f)
-                    localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
+                localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
                 if (Mathf.Abs(_thrustInput.y) > 1e-5f)
                     localVel.y -= hoverDrag  * localVel.y * Mathf.Abs(localVel.y) * dt;
                 currentVelocity = transform.TransformDirection(localVel);
