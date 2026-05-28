@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "unity-mcp": {
+      "command": "C:\\Users\\Usuario\\.unity\\relay\\relay_win.exe",
+      "args": ["--mcp", "--project-path", "C:\\Users\\Usuario\\Documents\\GitHub\\Space-Mayhem"]
+    }
+  }
+}

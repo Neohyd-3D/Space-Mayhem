@@ -23,8 +23,13 @@ namespace SpaceMayhem
         [Tooltip("Acceleration for forward / backward thrust (m/s²).")]
         public float thrustForce = 50f;
 
-        [Tooltip("Acceleration for left/right strafe (m/s²).")]
+        [Tooltip("Strafe acceleration (m/s²) at zero speed.")]
         public float strafeThrustForce = 30f;
+
+        [Tooltip("Strafe acceleration (m/s²) at turnResistanceMaxSpeed. " +
+                 "Linearly interpolated from strafeThrustForce as speed increases. " +
+                 "Higher than strafeThrustForce = strafing becomes more powerful at speed.")]
+        public float maxStrafeThrustForce = 30f;
 
         [Tooltip("Quadratic drag coefficient on strafe (left/right) velocity. " +
                  "Drag force = strafeDrag × v². Near zero it barely resists, but ramps hard at speed. " +
@@ -43,8 +48,9 @@ namespace SpaceMayhem
         public float maxSpeed = 50f;
 
         [Range(0f, 5f)]
-        [Tooltip("Per-second velocity decay rate during normal flight. " +
-                 "Equilibrium speed under full thrust = thrustForce / linearDrag.")]
+        [Tooltip("Per-second velocity decay rate when NOT thrusting forward. " +
+                 "While the trigger is held, forward momentum is preserved through turns. " +
+                 "Release the trigger and this rate determines how fast the ship coasts to a stop.")]
         public float linearDrag = 1.0f;
 
         [Header("Brake")]
@@ -72,10 +78,15 @@ namespace SpaceMayhem
         public float boostSnapDuration = 0.2f;
 
         [Header("Rotation")]
+        [Tooltip("Speed (m/s) at which turn authority reaches its minimum (minTurnFactor). " +
+                 "Below this speed the curve is gentle; at and above it the full restriction applies. " +
+                 "Set this to your intended cruising speed, not maxSpeed.")]
+        public float turnResistanceMaxSpeed = 30f;
+
         [Range(0f, 1f)]
-        [Tooltip("Turn authority at maximum speed, as a fraction of full authority. " +
-                 "Scales quadratically with speed so low-speed handling is barely affected " +
-                 "but high-speed turning feels heavy. 0.3 = 30% of normal turn rate at max speed.")]
+        [Tooltip("Turn authority at turnResistanceMaxSpeed, as a fraction of full authority. " +
+                 "Scales quadratically so low-speed handling is barely affected. " +
+                 "0.3 = 30% of normal turn rate at full cruising speed.")]
         public float minTurnFactor = 0.3f;
 
         [Header("Horizon Reset / Auto-Level")]
@@ -254,7 +265,7 @@ namespace SpaceMayhem
             // Turn authority drops quadratically with speed: full at rest, minTurnFactor
             // at maxSpeed. Quadratic keeps low-speed handling snappy while making
             // high-speed turns feel appropriately heavy.
-            float speedT      = Mathf.Clamp01(currentVelocity.magnitude / Mathf.Max(1f, maxSpeed));
+            float speedT      = Mathf.Clamp01(currentVelocity.magnitude / Mathf.Max(1f, turnResistanceMaxSpeed));
             float turnFactor  = Mathf.Lerp(1f, minTurnFactor, speedT * speedT);
             float scaledPitch = _rotationInput.x * turnFactor;
             float scaledYaw   = _rotationInput.y * turnFactor;
@@ -336,25 +347,29 @@ namespace SpaceMayhem
                 // Thrust is suppressed while braking — brake wins completely.
                 if (!isBraking)
                 {
+                    float effectiveStrafe = Mathf.Lerp(strafeThrustForce, maxStrafeThrustForce, speedT);
                     Vector3 localThrust = new Vector3(
-                        _thrustInput.x * strafeThrustForce,
+                        _thrustInput.x * effectiveStrafe,
                         _thrustInput.y * hoverThrustForce,
                         _thrustInput.z * thrustForce);
                     currentVelocity += transform.TransformDirection(localThrust) * dt;
                 }
 
-                // Base exponential drag always runs.
+                // ── Drag ─────────────────────────────────────────────────────────
+                // Uniform world-space drag — shrinks velocity magnitude regardless of
+                // direction. This creates an emergent equilibrium speed below maxSpeed
+                // (equilibrium ≈ thrustForce / linearDrag), leaving maxSpeed free as
+                // an absolute cap for boosts and speed modifiers.
+                // Speed loss during turns is minimal because the quadratic strafe drag
+                // (the real culprit) is gated on input below.
                 currentVelocity *= Mathf.Exp(-linearDrag * dt);
 
-                // Quadratic drag on strafe (X) and hover (Y) — gated on active input only.
-                // Without this gate, yawing rotates the ship under its world-space velocity,
-                // making forward momentum appear as local-X strafe, which the drag would then
-                // kill. Gating on input means only player-driven lateral movement is resisted;
-                // turning preserves momentum (Newtonian), so speed-dependent turn resistance
-                // actually has something to work against.
+                // Quadratic drag on strafe/hover.
+                // Strafe drag is always active (not gated on input) so lateral velocity
+                // accumulated from yawing has a natural equilibrium to settle toward.
+                // Hover drag remains input-gated — vertical drift is less meaningful in a racer.
                 Vector3 localVel = transform.InverseTransformDirection(currentVelocity);
-                if (Mathf.Abs(_thrustInput.x) > 1e-5f)
-                    localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
+                localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
                 if (Mathf.Abs(_thrustInput.y) > 1e-5f)
                     localVel.y -= hoverDrag  * localVel.y * Mathf.Abs(localVel.y) * dt;
                 currentVelocity = transform.TransformDirection(localVel);

@@ -1,23 +1,24 @@
 using UnityEngine;
-/*
+
 namespace SpaceMayhem
 {
     /// <summary>
     /// Application-wide settings applied once at startup, before any scene loads.
     /// No GameObject attachment required.
+    /// TargetFrameRate remains -1 so display/VSync pacing owns frame timing.
     /// </summary>
     static class AppSettings
     {
-        // Set to 60, 90, 120, 144, or -1 for uncapped.
-        const int TargetFrameRate = 120;
+        // -1 = let VSync control timing (set QualitySettings.vSyncCount = 1 in Project Settings).
+        // Use a positive value (60/90/120/144) only when vSyncCount is 0 (VSync off).
+        const int TargetFrameRate = -1;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Apply()
         {
-            // Disable VSync so targetFrameRate is respected.
-            QualitySettings.vSyncCount  = 0;
+            // VSync is ON via QualitySettings; macOS player pacing is handled by
+            // ProjectSettings/PlayerSettings.metalUseMetalDisplayLink.
             Application.targetFrameRate = TargetFrameRate;
         }
     }
 }
-*/
