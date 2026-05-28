@@ -1,0 +1,270 @@
+================================================================================
+SPACE MAYHEM — SHIP CONTROLLER / DRIFT SYSTEM
+Session context handoff — 2026-05-29
+Paste this into a new conversation to continue work on the spaceship controller.
+================================================================================
+
+--------------------------------------------------------------------------------
+0. HOW TO USE THIS DOC
+--------------------------------------------------------------------------------
+This is a briefing for a fresh AI assistant continuing work on a Unity space
+racing game's spaceship controller. Read the actual scripts for ground truth —
+this doc captures the mental model, decisions, and the open question we ended on,
+so you don't have to re-derive everything. Files cited are relative to the
+project root (C:\Users\Usuario\Documents\GitHub\Space-Mayhem).
+
+
+--------------------------------------------------------------------------------
+1. PROJECT CONTEXT
+--------------------------------------------------------------------------------
+- Game: a space racing game inspired by Mario Kart. Controls must feel
+  SATISFYING and ARCADE-LIKE — NOT a simulation.
+- Engine: Unity 6000.4.8f1, HDRP. Platform: Windows 11.
+- Git branch: rework/ship-turning  (main branch is `main`).
+- There is no track/level yet. Design philosophy: the ship must feel great just
+  flying around in open space first; only then build a track. So all current
+  work is about raw ship feel.
+
+KEY DESIGN PRINCIPLE (the user is firm on this):
+  Game feel like "commitment" and "drift" must EMERGE from physics systems
+  interacting — NOT be a hardcoded/bolt-on state machine or a magic "feel" knob.
+  Parameters are acceptable if they are PHYSICAL properties (e.g. grip), not
+  cheat flags.
+
+
+--------------------------------------------------------------------------------
+2. THINGS THE USER SAID NOT TO TOUCH
+--------------------------------------------------------------------------------
+- CAMERA: full Cinemachine setup lives on this branch. DO NOT TOUCH IT.
+  (CinemachineThirdPersonFollow + RotationComposer. CameraFollower.cs and
+   ShipCameraTarget.cs still exist in the repo; ShipCameraTarget is a deprecated
+   empty stub. The live camera is Cinemachine, not these scripts.)
+- BRAKE TUNING VALUES: brakeThresholdSpeed = 7, maxSpeed = 50, boost multipliers,
+  etc. are WIP tuning. Leave them even if the numbers look odd — "they work for
+  the moment."
+- The strafe-thrust-scales-with-speed system (strafeThrustForce ->
+  maxStrafeThrustForce, lerped by speed) is intentional; don't rip it out.
+
+
+--------------------------------------------------------------------------------
+3. CONTROLLER ARCHITECTURE (what each script does)
+--------------------------------------------------------------------------------
+SpaceshipInput.cs
+  Reads the Input System. Converts per-source semantics into "degrees this frame":
+  mouse = pixels * sensitivity (NOT * dt); gamepad = stick * gamepadLookSpeed * dt.
+  Forwards thrust (local-space [-1,1] vec) + rotation (degrees this frame) + brake
+  to the controller via ApplyInput(). Has startup settle frames + a per-frame
+  look-degrees safety clamp.
+
+SpaceshipController.cs  <-- THE CORE. All drift work happens here.
+  Kinematic (NO Rigidbody). Holds currentVelocity in WORLD space. Integrates in
+  Update() (NOT FixedUpdate) for render-rate smoothness. Velocity never rotates;
+  only the transform rotates. Drag, thrust, brake, barrel roll, auto-level,
+  horizon reset, collision depenetration, and the new momentum-steering all live
+  in Update().
+
+MomentumSystem.cs
+  Smoothstep velocity blender. StartBoost(from, to, duration) is used by the
+  brake-release boost. (StartRedirect was DELETED this session — it was dead code.)
+
+Other scripts (not in scope right now):
+  AppSettings.cs (framerate/vsync), TimeDilationEffects.cs (empty stub),
+  PostProcess/BrakeRadialBlurEffect.cs (HDRP custom post-process, implemented but
+  NOT wired up yet), UI/SpeedDisplay.cs (TMP speed readout), JitterDiagnostic.cs
+  (diagnostic only, remove before shipping), RotateCube.cs (scratch).
+
+
+--------------------------------------------------------------------------------
+4. WHAT WE BUILT THIS SESSION: THE DRIFT SYSTEM
+--------------------------------------------------------------------------------
+THE PROBLEM:
+  Turning had "no sense of commitment or weight." The user wants: when you
+  strafe + yaw, the ship enters a controllable DRIFT STATE where you glide
+  through smooth curves and constantly tweak the angle (Mario Kart drift feel).
+
+DIAGNOSIS (important — explains the whole design):
+  - Velocity is world-space and only ever changes via thrust (adds along nose)
+    and drag (shrinks). When you yaw, your existing momentum just sits pointing
+    the old way and bleeds; nothing STEERS it.
+  - Every existing force drives the slip angle (nose vs velocity direction)
+    toward ZERO. So a sustained "drift state" had no equilibrium to live in —
+    only a brief transient. No amount of value-tuning could produce it; the
+    system was STRUCTURALLY missing a mechanism.
+
+FALSE STARTS (don't repeat these):
+  - Adding drag/grip that CANCELS lateral velocity is WRONG. Drag is an ALIGNING
+    force — it deletes the slide and pulls velocity toward the nose. That makes
+    the ship MORE on-rails, the opposite of drift.
+  - Vector3.RotateTowards at a CONSTANT angular rate is WRONG. It has no stable
+    equilibrium slip: if yaw rate > grip rate the slip grows unbounded (spinout);
+    if less, it snaps to zero (no drift). Knife-edge between. Would feel awful.
+
+THE SOLUTION (momentum steering):
+  ROTATE the velocity vector toward the heading, PRESERVING its magnitude — i.e.
+  steer the momentum, don't delete it. Implemented with a PROPORTIONAL approach
+  (Vector3.Slerp with t = 1 - exp(-grip*dt)) so the closing rate grows with the
+  slip angle => a STABLE equilibrium slip forms:  slip ≈ yawRate / grip.
+  Yaw opens the slip, steering holds it. This produces a real, sustained,
+  controllable drift curve.
+
+  Details / guards (all in SpaceshipController.Update(), velocity-integration
+  block, inside the non-redirecting else branch, after drag and before braking):
+    - YAW-PLANE ONLY: split velocity into world-horizontal + vertical; steer only
+      the horizontal toward the horizontal projection of transform.forward;
+      preserve the vertical component (hover/climb unaffected). (User chose
+      yaw-plane, not full 3D.)
+    - Magnitude preserved: Slerp between two equal-length horizontal vectors keeps
+      speed constant => no speed jitter.
+    - Frame-rate independent via t = 1 - exp(-grip*dt).
+    - Guards against weird movement / singularities:
+        * skip if horizSpeed < steeringMinSpeed (zero-speed direction singularity)
+        * skip if horizontal forward is degenerate (nose near-vertical)
+        * skip while _isBarrelRolling (preserves the barrel-roll dash feel)
+        * "hemisphere fade": grip *= Clamp01(dot(horizVelDir, horizFwd)) — fades
+          grip smoothly to 0 by 90 degrees of slip and is 0 when reversing, which
+          sidesteps the antiparallel-Slerp singularity without a hard cutoff.
+
+  STRAFE-GATED GRIP (second iteration — fixes "drift won't stop when I release
+  strafe but keep yawing"):
+    The first version made grip purely speed-dependent, so pure yaw at speed
+    already drifted (slip = yawRate/grip regardless of strafe). Releasing strafe
+    didn't tighten the turn. Fix: make grip depend on strafe input so STRAFE is
+    the thing that breaks grip / opens drift.
+
+    Final grip formula in code:
+      speedT     = Clamp01(speed / turnResistanceMaxSpeed)
+      gripBase   = Lerp(steeringGripLow, steeringGripHigh, speedT)
+      grip       = gripBase * Lerp(1, driftGripScale, |strafeInput.x|) * hemisphere
+      steerT     = 1 - Exp(-grip * dt)
+      steeredHoriz = Vector3.Slerp(horizVel, horizFwd * horizSpeed, steerT)
+      currentVelocity = steeredHoriz + Vector3.up * currentVelocity.y
+
+  STRAFE DRAG was RE-GATED to input (if |thrustInput.x| > eps). It is the strafe
+  TERMINAL-VELOCITY cap (terminal ~ sqrt(thrust/drag)), NOT a drift mechanism.
+  Gating it on input keeps it from bleeding the lateral momentum that yaw
+  produces — momentum steering owns that axis instead. (We confirmed deleting it
+  would roughly double strafe terminal speed ~16 -> ~30 m/s, so it stays.)
+
+
+--------------------------------------------------------------------------------
+5. CURRENT SERIALIZED FIELDS (Turn / Drift Steering header)
+--------------------------------------------------------------------------------
+  steeringGripLow   = 8     // grip (1/s) at low speed, NOT strafing. Tight/responsive.
+  steeringGripHigh  = 4     // grip (1/s) at turnResistanceMaxSpeed, NOT strafing.
+                            //   High => pure yaw is a tight committed turn even at speed.
+  driftGripScale    = 0.3   // [0..1] fraction of grip remaining at FULL strafe.
+                            //   Strafing breaks grip => drift opens. 4 * 0.3 = 1.2.
+  steeringMinSpeed  = 1.5   // m/s floor; steering off below this (guard).
+
+  ** IMPORTANT INSPECTOR NOTE **
+  Changing a field's default IN CODE does NOT change an already-serialized
+  component in a scene/prefab — Unity keeps the stored Inspector value. When
+  steeringGripHigh was raised 1.2 -> 4 in code, the user had to set it to 4
+  MANUALLY in the Inspector. New fields (driftGripScale) DO pick up their code
+  default automatically. If behavior doesn't match this doc, CHECK THE INSPECTOR
+  VALUES on the ship GameObject first.
+
+  Related existing knobs that interact with drift:
+    turnResistanceMaxSpeed = 30   // speed where turn authority & grip hit their "high speed" end
+    minTurnFactor = 0.3           // yaw authority shrinks to 30% at turnResistanceMaxSpeed (quadratic)
+    strafeThrustForce / maxStrafeThrustForce // strafe accel, lerped up with speed
+    strafeDrag = 0.05             // strafe terminal-velocity cap (input-gated)
+    linearDrag = 1.0              // uniform world-space speed bleed when not thrusting
+
+
+--------------------------------------------------------------------------------
+6. EMERGENT BEHAVIORS THAT NOW EXIST (the payoff)
+--------------------------------------------------------------------------------
+- slip angle ≈ yawRate / grip  (stable, tunable).
+- Pure yaw (no strafe) = tight committed turn; momentum tracks the nose.
+- Strafe breaks grip => drift opens; release strafe => grip restores => the turn
+  tightens back up smoothly.
+- THROTTLE modulates the drift angle FOR FREE: forward thrust also closes slip,
+  so easing off the trigger widens the drift and punching it tightens / powers
+  out. Nobody coded this; it falls out of the interaction.
+- Deep drifts scrub speed (forward thrust only projects cos(slip) onto velocity).
+
+THE DRIFT INPUT (confirmed with the user):
+  - Yaw one way + strafe the OPPOSITE way = DEEP DRIFT ("counter-strafe").
+    Physics: a right yaw nudges momentum to the left of the nose; strafing left
+    pushes it further left — same side — so the slip stacks and deepens.
+  - Strafe INTO the turn (same side as yaw) = fights the slip => tightens/flattens.
+  - The player feathers the counter-strafe to hold and tweak the slide = the
+    "glide and tweak" feel the user wanted.
+
+
+--------------------------------------------------------------------------------
+7. *** OPEN QUESTION — START HERE TOMORROW ***
+--------------------------------------------------------------------------------
+The current scheme requires a COUNTER-STRAFE to drift: to drift right you yaw
+right and strafe LEFT ("push left to drift right"). It is physically grounded and
+feels skill-expressive, and the user discovered it naturally and called it
+"counterbalance."
+
+BUT the more conventional arcade expectation is "lean INTO the turn to drift"
+(strafe right to drift right). The user has NOT yet decided which scheme they
+want.
+
+DECISION NEEDED FROM THE USER:
+  (A) Keep counter-strafe-to-drift (current behavior), or
+  (B) Make strafe-INTO-the-turn the drift initiation.
+
+If (B): this is NOT just a value tweak. It changes how strafe interacts with the
+slip — strafing into the turn currently FIGHTS the yaw-induced slip. Walk the
+user through options before implementing, e.g. biasing/seeding the slip in the
+yaw direction so that strafing toward the yaw deepens rather than cancels it, or
+decoupling "grip break" (magnitude of strafe) from "slip direction" (which way
+strafe pushes). Discuss; don't just code it.
+
+Also still worth feeling out / possible follow-ups:
+  - Straight-line strafe dodge now glides a bit more (side effect of grip keying
+    off strafe regardless of yaw). User was going to judge if that feels good.
+  - Tuning levers: driftGripScale DOWN => looser/wider drift; steeringGripHigh UP
+    => sharper snap-back when releasing strafe.
+
+
+--------------------------------------------------------------------------------
+8. UNITY MCP SETUP (for live editor control / compile checking)
+--------------------------------------------------------------------------------
+We switched toward Unity's OFFICIAL MCP (com.unity.ai.assistant package is
+installed). Created .mcp.json at the project root:
+
+  {
+    "mcpServers": {
+      "unity-mcp": {
+        "command": "C:\\Users\\Usuario\\.unity\\relay\\relay_win.exe",
+        "args": ["--mcp", "--project-path",
+                 "C:\\Users\\Usuario\\Documents\\GitHub\\Space-Mayhem"]
+      }
+    }
+  }
+
+To make it live:
+  1. Unity: Edit > Project Settings > AI > Unity MCP Server — ensure Bridge =
+     Running (green). The relay binary is already installed at
+     %USERPROFILE%\.unity\relay\relay_win.exe.
+  2. Restart the Claude Code session (MCP loads at startup).
+  3. Unity will show a "Pending Connection" — click Accept.
+  4. Optionally approve it without prompting by adding
+     "enabledMcpjsonServers": ["unity-mcp"] to .claude/settings.local.json.
+
+NOTE: There is ALSO an older community MCP (com.emeryporter.unitymcp) that was
+listening on http://localhost:8080 but HANGS on POST (needs the editor connected).
+The official relay is the one to use going forward.
+
+NOTE: The drift code edits this session were NOT compile-checked (MCP wasn't
+connected). Verify it compiles in the Editor; the logic was reviewed by hand and
+should be clean (speedT is in scope, braces balance, standard Unity API only).
+
+
+--------------------------------------------------------------------------------
+9. SUGGESTED OPENING MESSAGE FOR TOMORROW
+--------------------------------------------------------------------------------
+"Continuing work on the Space Mayhem spaceship controller (Unity HDRP, branch
+rework/ship-turning). Read Assets/Scripts/SpaceshipController.cs — the drift /
+momentum-steering system is in the velocity-integration block of Update(). I've
+attached a context doc (ship-drift-context_2026-05-29.txt) summarizing what we
+built and the open question. Today I want to decide: counter-strafe-to-drift vs
+strafe-into-the-turn-to-drift. Re-read the controller and the open question in
+section 7, then let's discuss before changing anything."
+================================================================================
