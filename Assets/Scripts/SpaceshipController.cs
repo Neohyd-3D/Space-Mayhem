@@ -13,8 +13,9 @@ namespace SpaceMayhem
     /// SpaceshipInput layer is responsible for converting per-source semantics
     /// (mouse pixel-delta vs. gamepad normalized stick × Time.deltaTime).
     ///
-    /// Braking applies a high extra drag that physically slows the ship.
-    /// On release, MomentumSystem blends velocity toward the new facing direction.
+    /// Braking applies a linear deceleration that can bring the ship to a full stop;
+    /// releasing the brake fires a forward boost via MomentumSystem (reward or penalty
+    /// scaled by entry speed). A counter-strafe latches a momentum-steering drift.
     /// </summary>
     [DisallowMultipleComponent]
     public class SpaceshipController : MonoBehaviour
@@ -89,26 +90,68 @@ namespace SpaceMayhem
                  "0.3 = 30% of normal turn rate at full cruising speed.")]
         public float minTurnFactor = 0.3f;
 
-        [Header("Turn / Drift Steering")]
+        // Normal (non-drifting) handling: how hard momentum is pulled to follow the nose.
+        // The Drift section below temporarily drops grip from these values down to driftGrip —
+        // that planted-vs-loose contrast is what makes a drift read as a drift.
+        [Header("Steering Grip (normal handling)")]
         [Tooltip("How strongly the ship's momentum follows its heading (1/s) at low speed " +
-                 "when NOT strafing. High = responsive, tight steering with almost no slip. " +
+                 "when NOT drifting. High = responsive, tight steering with almost no slip. " +
                  "This is the directional grip on the velocity vector — yaw-plane only.")]
         public float steeringGripLow = 8f;
 
-        [Tooltip("Momentum-follow grip (1/s) at turnResistanceMaxSpeed when NOT strafing. " +
+        [Tooltip("Momentum-follow grip (1/s) at turnResistanceMaxSpeed when NOT drifting. " +
                  "Keep fairly high so a pure yaw is a tight, committed turn even at speed. " +
-                 "Steady-state slip ≈ yawRate / grip. Strafing scales this down via driftGripScale.")]
+                 "Steady-state slip ≈ yawRate / grip. The drift latch drops grip to driftGrip.")]
         public float steeringGripHigh = 4f;
-
-        [Range(0f, 1f)]
-        [Tooltip("Fraction of steering grip that remains at full strafe deflection. " +
-                 "Strafing 'breaks' directional grip to open the drift; releasing it restores grip " +
-                 "and the turn tightens back up. 0.3 = full strafe cuts grip to 30% (drift opens).")]
-        public float driftGripScale = 0.3f;
 
         [Tooltip("Speed (m/s) below which steering is disabled. Guards the zero-speed direction " +
                  "singularity; keep just above autoLevelSpeedThreshold so the two never overlap.")]
         public float steeringMinSpeed = 1.5f;
+
+        [Tooltip("How much an active strafe LOOSENS directional grip, so a sideways thrust reads as a " +
+                 "dodge instead of being folded into forward motion. 1 = no effect (strafe curves " +
+                 "forward — usually wrong). LOWER = the strafe stays lateral longer. 0.3 = full strafe " +
+                 "cuts grip to 30% while you hold it. Only applies when NOT drifting; the drift latch " +
+                 "owns grip on its own.")]
+        [Range(0f, 1f)]
+        public float strafeGripScale = 0.3f;
+
+        // ── DRIFT ─────────────────────────────────────────────────────────────
+        // A drift is entered by COUNTER-STRAFING (yaw one way, strafe the other) and
+        // is just "drop the grip": your normal steering grip (above) is swapped for
+        // the low driftGrip while committed, so momentum lags the nose = the slide.
+        // Tune these three for feel; the two fixed gates below are rarely touched.
+        [Header("Drift")]
+        [Tooltip("★ WASH FLOOR — grip (1/s) when you EASE OFF the counter-strafe at speed: how wide " +
+                 "the drift runs when you stop fighting it. LOWER = washes wider / understeers harder " +
+                 "if you don't hold it. This is the loose end of the balancing act; Drift Counter Grip " +
+                 "is the tight end. Keep well below Steering Grip High so the slide actually breaks loose.")]
+        public float driftGrip = 1.5f;
+
+        [Tooltip("★ FIGHT — grip (1/s) you claw back by pushing the counter-strafe FULLY at speed: how " +
+                 "tight you can hold the line when you fight the wash. HIGHER = a hard push nearly " +
+                 "cancels the slide (skilled, tight). LOWER = even fighting flat-out it keeps sliding. " +
+                 "Sits between Wash Floor and your normal grip. The high-speed balancing happens " +
+                 "between this and Wash Floor as you feather the strafe.")]
+        public float driftCounterGrip = 5f;
+
+        [Tooltip("★ DRIFT BITE — turn authority while fully committed to a drift. Speed normally CUTS " +
+                 "yaw (down to Min Turn Factor at top speed); a drift lifts it back to THIS value, " +
+                 "regardless of speed — that's how the drift returns control mid-corner. 1 = full " +
+                 "low-speed agility restored. >1 = restored PLUS extra bite, so the red drift line " +
+                 "hooks a tighter radius than the broad blue cruise turn. The high-speed radius dial.")]
+        public float driftYawBoost = 1.6f;
+
+        [Tooltip("ENTRY/EXIT SNAPPINESS (per second) — how fast the drift (grip + visuals) eases in " +
+                 "and out. HIGHER = snappier, more instant. LOWER = softer, floatier.")]
+        public float driftBlendSpeed = 6f;
+
+        [Header("Drift Visual (cosmetic only)")]
+        [Tooltip("Degrees the model swivels INTO the slide so the drift reads. Pure visual.")]
+        public float driftYaw = 18f;
+
+        [Tooltip("Degrees the model banks INTO the slide. Pure visual. Flip the sign if it leans wrong.")]
+        public float driftLean = 12f;
 
         [Header("Horizon Reset / Auto-Level")]
         [Tooltip("Rotation rate (°/s) for both the R3 manual snap and the idle auto-level.")]
@@ -163,19 +206,6 @@ namespace SpaceMayhem
         public Vector3 currentVelocity { get; private set; }
         public bool isBraking { get; private set; }
 
-        /// <summary>
-        /// Current yaw rotation rate in degrees/second. Positive = turning right.
-        /// Exposed so the camera look-ahead script can normalise against a rate
-        /// rather than a per-frame degree value (gamepad and mouse produce very
-        /// different per-frame magnitudes at equivalent intent).
-        /// </summary>
-        public float RotationRateYaw   { get; private set; }
-
-        /// <summary>
-        /// Current pitch rotation rate in degrees/second. Positive = pitching up.
-        /// </summary>
-        public float RotationRatePitch { get; private set; }
-
         Vector3 _thrustInput;
         Vector3 _rotationInput;  // degrees this frame (already source-scaled by SpaceshipInput)
         bool  _wasBraking;
@@ -204,6 +234,19 @@ namespace SpaceMayhem
 
         public bool IsResettingHorizon => _isResettingHorizon;
 
+        // Fixed drift gates — rarely tuned, so kept out of the Inspector. Promote to
+        // [SerializeField] fields if you ever need to tweak them per-ship.
+        const float DriftMinSpeed      = 8f;   // min horizontal speed (m/s) to enter / sustain a drift
+        const float DriftInputDeadzone = 0.3f; // counter-strafe magnitude (0–1) needed to trigger one
+
+        // Drift latch state
+        bool  _isDrifting;   // true while a counter-strafe drift is committed
+        float _driftDir;     // sign of yaw captured at drift entry (+1 = turning right)
+        float _driftBlend;   // 0→1 eased commitment; drives drift grip + visual yaw/lean
+
+        public bool  IsDrifting      => _isDrifting;
+        public float DriftCommitment => _driftBlend;
+
         void Awake()
         {
             if (momentum == null) momentum = GetComponent<MomentumSystem>();
@@ -222,14 +265,6 @@ namespace SpaceMayhem
             _thrustInput   = Vector3.ClampMagnitude(thrust, 1f);
             _rotationInput = rotation;
             isBraking      = braking;
-
-            // Convert per-frame degrees → degrees/second so the camera look-ahead
-            // gets a source-agnostic rate signal.  Gamepad full-stick and a fast
-            // mouse swipe both saturate toward the same magnitude; normalisation
-            // against gamepadLookSpeed (140 °/s) is done in CameraLookAhead.
-            float dt = Mathf.Max(Time.deltaTime, 0.0001f);
-            RotationRateYaw   =  rotation.y / dt;
-            RotationRatePitch = -rotation.x / dt; // –x = nose up = positive pitch
         }
 
         // direction: +1 = roll left / roll up,  -1 = roll right / roll down.
@@ -288,8 +323,14 @@ namespace SpaceMayhem
             // high-speed turns feel appropriately heavy.
             float speedT      = Mathf.Clamp01(currentVelocity.magnitude / Mathf.Max(1f, turnResistanceMaxSpeed));
             float turnFactor  = Mathf.Lerp(1f, minTurnFactor, speedT * speedT);
-            float scaledPitch = _rotationInput.x * turnFactor;
-            float scaledYaw   = _rotationInput.y * turnFactor;
+            // Drift restores the turn authority speed took away: while committed, the loose tail
+            // LIFTS turnFactor back toward driftYawBoost (full agility + bite) regardless of speed —
+            // this is what "returns control to the player" mid-corner, instead of merely scaling the
+            // already-crippled high-speed value. Uses last frame's _driftBlend (updated later in the
+            // velocity block); the one-frame lag is imperceptible.
+            float driftTurnFactor = Mathf.Lerp(turnFactor, driftYawBoost, _driftBlend);
+            float scaledPitch     = _rotationInput.x * turnFactor;
+            float scaledYaw       = _rotationInput.y * driftTurnFactor;
 
             if (Mathf.Abs(scaledPitch) > 1e-5f) transform.Rotate(Vector3.right, scaledPitch, Space.Self);
             if (Mathf.Abs(scaledYaw)   > 1e-5f) transform.Rotate(Vector3.up,    scaledYaw,   Space.Self);
@@ -362,6 +403,8 @@ namespace SpaceMayhem
             if (momentum != null && momentum.IsRedirecting)
             {
                 currentVelocity = momentum.Tick(dt);
+                _isDrifting = false;
+                _driftBlend = Mathf.MoveTowards(_driftBlend, 0f, driftBlendSpeed * dt);
             }
             else
             {
@@ -390,22 +433,26 @@ namespace SpaceMayhem
                 // not a drift mechanism. Gated on input so it never bleeds the lateral momentum
                 // that yawing produces — momentum steering (below) owns that axis instead.
                 Vector3 localVel = transform.InverseTransformDirection(currentVelocity);
-                if (Mathf.Abs(_thrustInput.x) > 1e-5f)
+                // Suppressed while drifting: strafe drag would bleed the lateral momentum the
+                // counter-strafe is trying to build, shrinking the slide. Momentum steering owns it then.
+                if (!_isDrifting && Mathf.Abs(_thrustInput.x) > 1e-5f)
                     localVel.x -= strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
                 if (Mathf.Abs(_thrustInput.y) > 1e-5f)
                     localVel.y -= hoverDrag  * localVel.y * Mathf.Abs(localVel.y) * dt;
                 currentVelocity = transform.TransformDirection(localVel);
 
-                // ── Momentum steering (yaw-plane drift) ──────────────────────────
+                // ── Momentum steering + drift latch (yaw-plane) ──────────────────
                 // Rotate the HORIZONTAL velocity toward the ship's horizontal heading,
-                // preserving its magnitude (Slerp between equal-length vectors). The vertical
-                // component is left untouched so hover/climb is unaffected.
+                // preserving magnitude (Slerp between equal-length vectors); the vertical
+                // component is untouched so hover/climb is unaffected.
                 //
-                // Proportional, not constant-rate: the closing rate grows with the slip angle,
-                // so a STABLE equilibrium slip forms — yaw opens it, steering holds it. Grip
-                // falls with speed (steeringGripLow → steeringGripHigh), so drift naturally
-                // opens at racing speed. Forward thrust also closes slip, so throttle modulates
-                // the drift angle for free (ease off = wider, punch it = tighter / power out).
+                // Normally grip is high → tight, committed turns. A COUNTER-STRAFE (strafe opposite
+                // the yaw) drops grip into the drift band and lifts yaw authority (driftYawBoost, in
+                // the rotation block). The gesture is the throttle: holding it sustains the drift,
+                // releasing it (or strafing back into the turn, or slowing below DriftMinSpeed) exits
+                // immediately. Inside the drift, grip is a SPEED-SCALED balancing act between washing
+                // wide and biting the line — see the grip block below. Understeer is the only failure
+                // mode; the velocity Slerp can never overshoot the nose, so you can't spin out.
                 float horizSpeed = new Vector3(currentVelocity.x, 0f, currentVelocity.z).magnitude;
                 Vector3 horizFwd  = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
                 if (!_isBarrelRolling && horizSpeed >= steeringMinSpeed && horizFwd.sqrMagnitude > 1e-4f)
@@ -414,13 +461,58 @@ namespace SpaceMayhem
                     Vector3 horizVel    = new Vector3(currentVelocity.x, 0f, currentVelocity.z);
                     Vector3 horizVelDir = horizVel / horizSpeed;
 
+                    // Counter-strafe gesture: yaw and strafe both present and on OPPOSITE sides.
+                    bool yawing        = Mathf.Abs(_rotationInput.y) > 1e-4f;
+                    bool strafing      = Mathf.Abs(_thrustInput.x)   > DriftInputDeadzone;
+                    bool counterStrafe = yawing && strafing &&
+                                         Mathf.Sign(_thrustInput.x) != Mathf.Sign(_rotationInput.y);
+
+                    // Input-sustained latch: the counter-strafe IS the throttle. Hold it → drift
+                    // holds; release it → exit immediately (responsive, no grace timer). _driftBlend
+                    // eases grip back so the return is smooth, not a snap. Strafing back INTO the turn
+                    // flips the sign so counterStrafe goes false — that's the natural "catch".
+                    if (!_isDrifting)
+                    {
+                        if (counterStrafe && horizSpeed >= DriftMinSpeed)
+                        {
+                            _isDrifting = true;
+                            _driftDir   = Mathf.Sign(_rotationInput.y);
+                        }
+                    }
+                    else if (!counterStrafe || horizSpeed < DriftMinSpeed)
+                    {
+                        _isDrifting = false;
+                    }
+
+                    // Ease commitment 0↔1 — drives both the drift grip and the visual lean.
+                    _driftBlend = Mathf.MoveTowards(_driftBlend, _isDrifting ? 1f : 0f,
+                                                    driftBlendSpeed * dt);
+
                     // Forward-hemisphere fade: full grip when aligned, fading to zero by 90° of
-                    // slip, zero when reversing. Smoothly sidesteps the antiparallel Slerp
-                    // singularity instead of a hard cutoff.
+                    // slip, zero when reversing — sidesteps the antiparallel Slerp singularity.
                     float hemisphere = Mathf.Clamp01(Vector3.Dot(horizVelDir, horizFwd));
                     float gripBase   = Mathf.Lerp(steeringGripLow, steeringGripHigh, speedT);
-                    // Strafing breaks directional grip → drift opens; release → grip restores → turn tightens.
-                    float grip       = gripBase * Mathf.Lerp(1f, driftGripScale, Mathf.Abs(_thrustInput.x)) * hemisphere;
+                    // A plain strafe (no drift) loosens grip so the sideways thrust stays a dodge
+                    // instead of the momentum steering folding it into forward motion. Lerped out
+                    // once the drift commits (_driftBlend → 1), since the drift band owns grip then.
+                    float strafeLoosen = Mathf.Lerp(1f, strafeGripScale, Mathf.Abs(_thrustInput.x));
+                    gripBase *= strafeLoosen;
+
+                    // ── The balancing act (understeer-only) ──────────────────────
+                    // Drift grip is a tug-of-war between WASH and FIGHT:
+                    //   • Analog counter-strafe DEPTH (past the deadzone) is the fight — ease off
+                    //     and grip sags toward driftGrip (washes wide), push hard and it claws back
+                    //     up to driftCounterGrip (bites the line). Strafe magnitude finally matters.
+                    //   • Speed sets the stakes — at low speed grip stays near normal (slow corners
+                    //     are trivial); at high speed it collapses onto the fight, so a fast corner
+                    //     you don't actively hold will run you wide. That's "fighting the force you
+                    //     entered with". No spin is possible: the Slerp only ever pulls velocity
+                    //     TOWARD the nose, never past it — understeer is the only failure mode.
+                    float counterMag    = Mathf.Clamp01(
+                        (Mathf.Abs(_thrustInput.x) - DriftInputDeadzone) / (1f - DriftInputDeadzone));
+                    float commandedGrip = Mathf.Lerp(driftGrip, driftCounterGrip, counterMag);
+                    float driftGripNow  = Mathf.Lerp(steeringGripLow, commandedGrip, speedT);
+                    float grip          = Mathf.Lerp(gripBase, driftGripNow, _driftBlend) * hemisphere;
 
                     if (grip > 1e-5f)
                     {
@@ -428,6 +520,12 @@ namespace SpaceMayhem
                         Vector3 steered = Vector3.Slerp(horizVel, horizFwd * horizSpeed, steerT);
                         currentVelocity = steered + Vector3.up * currentVelocity.y;
                     }
+                }
+                else if (_isDrifting || _driftBlend > 0f)
+                {
+                    // Below steering speed or degenerate heading: drop the drift and ease out.
+                    _isDrifting = false;
+                    _driftBlend = Mathf.MoveTowards(_driftBlend, 0f, driftBlendSpeed * dt);
                 }
 
                 // Braking: linear deceleration toward zero, scaled by pressure.
@@ -511,7 +609,13 @@ namespace SpaceMayhem
             float pitchFromAccel    =  _thrustInput.z * accelerationTilt;
             float pitch = Mathf.Clamp(pitchFromVertical + pitchFromAccel, -maxLeanAngle, maxLeanAngle);
 
-            Quaternion targetLean = Quaternion.Euler(pitch, 0f, bank);
+            // Drift commitment yaws and banks the visible mesh INTO the slide so the drift
+            // reads. _driftBlend eases 0→1 with the latch; _driftDir is the turn sign.
+            float driftYawAngle = _driftBlend * driftYaw  * _driftDir;
+            bank = Mathf.Clamp(bank + _driftBlend * driftLean * _driftDir,
+                               -maxLeanAngle - driftLean, maxLeanAngle + driftLean);
+
+            Quaternion targetLean = Quaternion.Euler(pitch, driftYawAngle, bank);
             float t = 1f - Mathf.Exp(-leanSpeed * Time.deltaTime);
             visualMesh.localRotation = Quaternion.Slerp(visualMesh.localRotation, targetLean, t);
         }
