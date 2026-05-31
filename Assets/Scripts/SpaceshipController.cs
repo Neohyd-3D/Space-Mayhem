@@ -21,8 +21,11 @@ namespace SpaceMayhem
     public class SpaceshipController : MonoBehaviour
     {
         [Header("Thrust")]
-        [Tooltip("Acceleration for forward / backward thrust (m/s²).")]
-        public float thrustForce = 50f;
+        [Tooltip("Acceleration for forward / backward thrust (m/s²). Terminal forward speed = " +
+                 "thrustForce / linearDrag, and time-to-top scales with 1 / linearDrag. To make " +
+                 "the ramp LONGER without dropping the top speed, lower thrustForce AND linearDrag " +
+                 "by the same factor — the ratio holds the ceiling, the smaller drag stretches the climb.")]
+        public float thrustForce = 20f;
 
         [Tooltip("Strafe acceleration (m/s²) at zero speed.")]
         public float strafeThrustForce = 30f;
@@ -49,10 +52,11 @@ namespace SpaceMayhem
         public float maxSpeed = 50f;
 
         [Range(0f, 5f)]
-        [Tooltip("Per-second velocity decay rate when NOT thrusting forward. " +
-                 "While the trigger is held, forward momentum is preserved through turns. " +
-                 "Release the trigger and this rate determines how fast the ship coasts to a stop.")]
-        public float linearDrag = 1.0f;
+        [Tooltip("Velocity decay rate (1/s) — sets BOTH the acceleration time-constant (1/linearDrag) " +
+                 "and the coast-down time. Lower = slower to reach top speed AND longer glide when you " +
+                 "let off. Terminal forward speed = thrustForce / linearDrag, so move this together with " +
+                 "thrustForce to keep the same top speed while changing how long the ramp takes.")]
+        public float linearDrag = 0.4f;
 
         [Header("Brake")]
         [Tooltip("Maximum deceleration (m/s²) at full brake pressure. " +
@@ -77,6 +81,28 @@ namespace SpaceMayhem
         [Tooltip("Seconds to ramp velocity from current to the boosted peak. " +
                  "Short (0.15–0.25) = snappy burst. Longer = rocket-like thrust.")]
         public float boostSnapDuration = 0.2f;
+
+        [Header("Drift Reward")]
+        // Reward sticking a slide: a committed drift charges up (the harder + longer the
+        // slide, the more charge), and the moment grip re-establishes the charge releases
+        // as a forward burst along the new heading. The burst can briefly push you above
+        // your thrust-terminal cruise; drag then bleeds it back down. Tunable below.
+        [Tooltip("Bonus exit speed (m/s) earned per charge-second of drift. Charge = how committed " +
+                 "the slide is, integrated over how long you hold it — so ~1s of a full slide ≈ this " +
+                 "many m/s of burst. HIGHER = drifting pays out harder.")]
+        public float driftBoostGain = 40f;
+
+        [Tooltip("Hard cap (m/s) on the drift burst no matter how long you hold the slide. Stops " +
+                 "endless donuts from banking an enormous boost.")]
+        public float driftBoostMaxSpeed = 80f;
+
+        [Tooltip("Minimum charge-seconds before a drift pays out at all. A quick flick of slip earns " +
+                 "nothing; you have to actually commit. ~0.25 ≈ a quarter-second of full commitment.")]
+        public float driftBoostMinCharge = 0.25f;
+
+        [Tooltip("Seconds to blend velocity into the boosted exit. Short (0.2–0.3) = a snappy kick " +
+                 "out of the corner; longer = a smoother surge.")]
+        public float driftBoostSnap = 0.25f;
 
         // ── HANDLING (lateral grip) ───────────────────────────────────────────
         // One physical model governs cornering: a saturating tire-style lateral force on
@@ -194,6 +220,21 @@ namespace SpaceMayhem
         [Tooltip("Max depenetration passes per frame. 3 is enough for nearly all geometry.")]
         public int depenetrationIterations = 3;
 
+        [Range(0f, 3f)]
+        [Tooltip("Surface friction on impact — how much sideways speed is scrubbed per unit of " +
+                 "head-on impact speed. A glancing graze barely presses into the wall (tiny into-" +
+                 "speed) so it scrubs almost nothing; a hard angled hit presses harder so it " +
+                 "scrubs more; a dead-on hit already loses its whole forward component to the " +
+                 "normal removal. Loss therefore emerges from the hit angle, not a fixed penalty.")]
+        public float collisionFriction = 0.5f;
+
+        [Tooltip("Radius of the swept sphere used for CONTINUOUS collision (anti-tunneling). The " +
+                 "move is cast along the velocity each frame so a thin wall can't be skipped at " +
+                 "high speed. 0 = auto (the thickest sphere that fits inside the ship collider). " +
+                 "Smaller = squeezes through tighter gaps but can clip corners; larger = safer but " +
+                 "stops short of walls.")]
+        public float sweepRadius = 0f;
+
         [Header("Dependencies")]
         public MomentumSystem momentum;
 
@@ -232,6 +273,11 @@ namespace SpaceMayhem
         // These delegate so external readers (ShipPathTracer, visuals) are unaffected.
         public bool  IsDrifting      => momentum != null && momentum.IsDrifting;
         public float DriftCommitment => momentum != null ? momentum.DriftCommitment : 0f;
+
+        // Local-space thrust command this frame (x = strafe, y = hover, z = forward/back),
+        // each in [-1,1]. Read by engine/propeller VFX so it reacts to the player actually
+        // accelerating, not merely to speed (a ship coasting at top speed isn't throttling up).
+        public Vector3 ThrustInput => _thrustInput;
 
         void Awake()
         {
@@ -394,7 +440,8 @@ namespace SpaceMayhem
                     linearDrag, strafeDrag, hoverDrag, maxSpeed, turnResistanceMaxSpeed,
                     steeringMinSpeed, brakeForce,
                     lateralGrip, peakSlipAngle * Mathf.Deg2Rad, maxGripForce,
-                    yawInertia, steerTorque, alignTorque, yawDamping);
+                    yawInertia, steerTorque, alignTorque, yawDamping,
+                    driftBoostGain, driftBoostMaxSpeed, driftBoostMinCharge, driftBoostSnap);
 
                 MotionState state = momentum.Step(intent, tunables, dt);
                 currentVelocity = state.velocity;
@@ -410,11 +457,82 @@ namespace SpaceMayhem
                     transform.Rotate(Vector3.up, _rotationInput.y, Space.Self);
             }
 
-            transform.position += currentVelocity * dt;
-
-            // ── Collision depenetration ───────────────────────────────────────
+            // ── Movement + collision ──────────────────────────────────────────
+            // Swept (continuous) move first so a wall can't be tunnelled through at
+            // speed, then a depenetration pass to settle any resting overlap.
+            SweepMove(currentVelocity * dt);
             if (shipCollider != null)
                 DepenetrateFromWorld();
+        }
+
+        // Continuous-collision integration. Instead of teleporting the ship by the full
+        // per-frame displacement (which lets fast ships skip clean over thin walls between
+        // frames), we cast the ship's sphere along the path and advance only as far as the
+        // first contact, apply the impact velocity response, then slide the leftover travel
+        // along the surface. Repeated a few times so corners resolve in one frame.
+        void SweepMove(Vector3 displacement)
+        {
+            float dist = displacement.magnitude;
+            if (dist < 1e-6f) return;
+
+            // No collider (or sweeping disabled) → plain kinematic move.
+            if (shipCollider == null)
+            {
+                transform.position += displacement;
+                return;
+            }
+
+            const float skin = 0.02f;
+            Bounds b = shipCollider.bounds;
+            float radius = sweepRadius > 1e-4f
+                ? sweepRadius
+                : Mathf.Max(0.05f, Mathf.Min(b.extents.x, b.extents.y, b.extents.z));
+
+            Vector3 startCenter = b.center;   // sphere origin tracks the collider centre
+            Vector3 center      = startCenter;
+            Vector3 dir         = displacement / dist;
+            float   remaining   = dist;
+
+            for (int i = 0; i < 4 && remaining > 1e-5f; i++)
+            {
+                if (Physics.SphereCast(center, radius, dir, out RaycastHit hit,
+                        remaining + skin, collisionMask, QueryTriggerInteraction.Ignore)
+                    && !_ownColliders.Contains(hit.collider) && !hit.collider.isTrigger
+                    && hit.distance > 1e-4f)   // distance 0 = already overlapping; leave it to depenetration
+                {
+                    float advance = Mathf.Max(0f, hit.distance - skin);
+                    center    += dir * advance;
+                    remaining -= advance;
+
+                    // Impact response, same Coulomb model as resting contact: kill the
+                    // into-surface component, then scrub grazing speed ∝ how hard we hit.
+                    Vector3 n    = hit.normal;
+                    float   into = Vector3.Dot(currentVelocity, -n);
+                    if (into > 0f)
+                    {
+                        currentVelocity += n * into;
+                        float tang = currentVelocity.magnitude;
+                        if (tang > 1e-4f)
+                        {
+                            float scrubbed = Mathf.Max(0f, tang - collisionFriction * into);
+                            currentVelocity *= scrubbed / tang;
+                        }
+                    }
+
+                    // Redirect the leftover travel along the wall (slide, don't stop dead).
+                    Vector3 slide = Vector3.ProjectOnPlane(dir * remaining, n);
+                    remaining = slide.magnitude;
+                    dir       = remaining > 1e-5f ? slide / remaining : Vector3.zero;
+                    if (dir == Vector3.zero) break;
+                }
+                else
+                {
+                    center += dir * remaining;
+                    remaining = 0f;
+                }
+            }
+
+            transform.position += center - startCenter;
         }
 
         void DepenetrateFromWorld()
@@ -463,7 +581,21 @@ namespace SpaceMayhem
 
                     float into = Vector3.Dot(currentVelocity, -dir);
                     if (into > 0f)
+                    {
+                        // Kill the component driving us into the wall (head-on energy is lost).
                         currentVelocity += dir * into;
+
+                        // Coulomb friction on the remaining grazing velocity: the harder we were
+                        // pressing into the surface, the more sideways speed gets scrubbed. A
+                        // shallow drag has tiny `into` → barely slows; a steep hit presses hard →
+                        // sheds a lot. Dead-on already lost everything above, so this adds nothing.
+                        float tang = currentVelocity.magnitude;
+                        if (tang > 1e-4f)
+                        {
+                            float scrubbed = Mathf.Max(0f, tang - collisionFriction * into);
+                            currentVelocity *= scrubbed / tang;
+                        }
+                    }
 
                     anyHit = true;
                 }

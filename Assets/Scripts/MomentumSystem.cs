@@ -71,13 +71,19 @@ namespace SpaceMayhem
         public readonly float steerTorque;    // torque produced per unit of commanded yaw rate
         public readonly float alignTorque;    // weathervane torque gain: restoring moment ∝ speed²·slip (no-spin stabilizer + heavy fast yaw)
         public readonly float yawDamping;     // rotational drag (1/s) on yaw rate — settles the turn, kills oscillation
+        // Drift-reward boost: a held slide charges, the exit releases a forward burst.
+        public readonly float driftBoostGain;      // m/s of bonus speed per accumulated charge-second
+        public readonly float driftBoostMaxSpeed;  // cap on the bonus speed however long the drift held
+        public readonly float driftBoostMinCharge; // charge-seconds needed before a drift pays out at all
+        public readonly float driftBoostSnap;      // seconds to blend the velocity into the boosted exit
 
         public MotionTunables(
             float thrustForce, float strafeThrustForce, float maxStrafeThrustForce, float hoverThrustForce,
             float linearDrag, float strafeDrag, float hoverDrag, float maxSpeed, float turnResistanceMaxSpeed,
             float steeringMinSpeed, float brakeForce,
             float lateralGrip, float peakSlipAngle, float maxGripForce,
-            float yawInertia, float steerTorque, float alignTorque, float yawDamping)
+            float yawInertia, float steerTorque, float alignTorque, float yawDamping,
+            float driftBoostGain, float driftBoostMaxSpeed, float driftBoostMinCharge, float driftBoostSnap)
         {
             this.thrustForce            = thrustForce;
             this.strafeThrustForce      = strafeThrustForce;
@@ -97,6 +103,10 @@ namespace SpaceMayhem
             this.steerTorque            = steerTorque;
             this.alignTorque            = alignTorque;
             this.yawDamping             = yawDamping;
+            this.driftBoostGain         = driftBoostGain;
+            this.driftBoostMaxSpeed     = driftBoostMaxSpeed;
+            this.driftBoostMinCharge    = driftBoostMinCharge;
+            this.driftBoostSnap         = driftBoostSnap;
         }
     }
 
@@ -122,6 +132,22 @@ namespace SpaceMayhem
         float _commitment;   // Clamp01(slipAngle / peakSlipAngle); drives visual yaw/lean + heatmap
         float _driftDir;     // sign of the current slip (+1 = sliding such that the nose points right of travel)
 
+        // ── Drift-reward charge ───────────────────────────────────────────────────
+        // While a slide is genuinely committed the stored lateral momentum is integrated
+        // into a charge; the payout fires the instant you RELEASE the strafe you were
+        // holding to keep the slide open. That release is the real exit cue — holding
+        // strafe suppresses grip authority (keeps the slide alive), so letting go is the
+        // moment grip re-engages and swings the velocity back onto the nose. Firing then
+        // rides that re-grip instead of waiting for the slip to decay across some level.
+        const float DriftArmCommit    = 0.5f;  // commitment above this charges + arms the reward
+        const float DriftReleaseFloor = 0.1f;  // fallback: a yaw-only slide (no strafe to release) pays out once the slip closes
+        const float StrafeDeadzone    = 0.1f;  // strafe magnitude below this counts as "not strafing"
+        float _driftCharge;  // ∫ commitment dt over the held slide (charge-seconds)
+        bool  _driftArmed;   // true once a slide has crossed the arm threshold this run
+        bool  _wasStrafing;  // was the player holding strafe last tick — to catch the release edge
+
+        public float DriftCharge => _driftCharge;
+
         // ── Yaw-plane dynamics (the heading is no longer instant — it has inertia) ─
         float _yawRate;      // deg/s, integrated from steering + self-aligning torque
 
@@ -141,6 +167,12 @@ namespace SpaceMayhem
             _duration       = Mathf.Max(0.001f, duration);
             _blended        = fromVelocity;
             IsRedirecting   = true;
+
+            // Any boost consumes/clears the drift charge so a brake-boost can't chain
+            // into a stale drift payout the instant it ends.
+            _driftCharge = 0f;
+            _driftArmed  = false;
+            _wasStrafing = false;
         }
 
         // Advances the redirect blend. Called from inside Step while IsRedirecting.
@@ -301,6 +333,68 @@ namespace SpaceMayhem
                 if (intent.brakePressure > 0f)
                     velocity = Vector3.MoveTowards(
                         velocity, Vector3.zero, k.brakeForce * intent.brakePressure * dt);
+
+                // ── Drift reward: charge while sliding, burst on exit ──────────────
+                // A committed slide (commitment past the arm threshold) stores momentum
+                // the grip would otherwise scrub; integrate it into a charge. The moment
+                // the tyres hook back up and the slide collapses, spend that charge as a
+                // forward burst along the NEW heading: you leave the corner pointing where
+                // you steered with MORE speed than you carried in. The burst reuses the
+                // brake-boost blend, and the global maxSpeed clamp caps it — so it's a
+                // brief, earned overspeed that drag then bleeds back to cruise.
+                //
+                // Suspended while braking: the brake owns deceleration and has its own
+                // release boost, and braking can drive commitment to zero on its own —
+                // we don't want that to read as a "drift exit" and fire a forward kick
+                // straight into the brake. The charge simply holds until the brake lifts.
+                if (intent.braking)
+                {
+                    /* hold charge; brake release path handles the payout/clear */
+                    _wasStrafing = false;   // brake interrupts the slide; don't fire a stale release on lift
+                }
+                else
+                {
+                    bool strafing = Mathf.Abs(intent.localThrust.x) > StrafeDeadzone;
+
+                    // Charge while the slide is genuinely committed (however it's steered).
+                    if (_commitment > DriftArmCommit)
+                    {
+                        _driftCharge += _commitment * dt;   // weighted by how hard the slide is
+                        _driftArmed   = true;
+                    }
+
+                    // PRIMARY exit cue: you LET GO of the strafe you were holding to keep the
+                    // slide open. Holding strafe suppresses grip authority, so the release is the
+                    // exact moment grip re-engages and swings the still-sideways velocity back
+                    // onto the nose — firing the boost there makes it a genuine re-direction, in
+                    // lock-step with the physics rather than chasing a decay curve.
+                    bool strafeReleased = _wasStrafing && !strafing;
+                    // FALLBACK for a slide steered by yaw alone (no strafe to release): pay out
+                    // once the slip has essentially closed on its own.
+                    bool resolved       = _commitment < DriftReleaseFloor;
+
+                    if (_driftArmed && (strafeReleased || resolved))
+                    {
+                        if (_driftCharge >= k.driftBoostMinCharge)
+                        {
+                            float bonus = Mathf.Min(_driftCharge * k.driftBoostGain, k.driftBoostMaxSpeed);
+                            // Boost direction is the NOSE (heading), flattened to horizontal —
+                            // explicitly NOT the current momentum direction.
+                            Vector3 fwd = Vector3.ProjectOnPlane(intent.heading * Vector3.forward, Vector3.up);
+                            if (fwd.sqrMagnitude > 1e-4f)
+                            {
+                                fwd.Normalize();
+                                float speedNow = new Vector3(velocity.x, 0f, velocity.z).magnitude;
+                                Vector3 target = fwd * (speedNow + bonus) + Vector3.up * velocity.y;
+                                StartBoost(velocity, target, k.driftBoostSnap); // redirects onto the nose; clears charge
+                            }
+                        }
+                        _driftCharge = 0f;
+                        _driftArmed  = false;
+                    }
+
+                    _wasStrafing = strafing;
+                }
             }
 
             // ── Yaw-plane dynamics: τ = I·α, integrated with rotational damping ───
