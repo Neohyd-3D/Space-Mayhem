@@ -111,7 +111,7 @@ struct MotionState {
     float   slipAngle;  // EMERGENT — feeds DriftCommitment, visual lean, audio
 }
 ```
-- `DriftCommitment` stops being a latched `_driftBlend` and becomes **derived**: roughly `Clamp01(slipAngle / breakawaySlipAngle)`. The path tracer, visual yaw/lean, and engine audio all read this emergent value — they don't change.
+- `DriftCommitment` stops being a latched `_driftBlend` and becomes **derived**: it measures slip *past* breakaway — `Clamp01((slipAngle − breakawayAngle) / peakSlipAngle)`, where `breakawayAngle = maxGripForce / lateralGrip` (where the tyre lets go). Below breakaway the ship is gripping → commitment 0, so an ordinary yaw-corner does NOT read as a drift (otherwise a hard yaw, which sits right at breakaway, tilted the mesh on its own). The path tracer, visual yaw/lean, and engine audio all read this emergent value — they don't change.
 
 ### `SpaceshipController` drops to orchestration
 Keeps only what is genuinely **not** yaw-plane dynamics:
@@ -156,10 +156,18 @@ Delete the Slerp grip, the drift latch, wash/fight, hemisphere fade, `strafeGrip
 - Counter-strafe drift must still appear — but now because strafe thrust pushes slip past the peak, *not* because a gesture flips a bool.
 - **This is Variant 1.** Stop here, play it, tune the three physical params.
 
-### Phase B — yaw inertia & front/rear tyres (optional, only if A's feel is too tame)
-Add `yawInertia`, front/rear force application points, torque-driven `yawRate`. Yaw input becomes a steer *intent*. The ship can now oversteer and spin.
-- Needs the input-semantics change (normalized yaw intent, not degrees).
-- Full re-tune. Only do this if we *want* the skill ceiling of catchable spins.
+### Phase B — yaw inertia, **no-spin** (DONE — the chosen path)
+Phase A made yaw instant (zero angular inertia), so the "fast = harder to turn" weight vanished — the player felt it immediately. Phase B gives the **heading rotational mass** and drives it with two torques, integrated as `τ = I·α` with rotational damping:
+- **Steering torque** — the player's commanded yaw rate (still rate-based input, mouse + gamepad unchanged) × `steerTorque`.
+- **Weathervane (directional-stability) torque** — a restoring torque that ALWAYS opposes the slip, pulling the nose back toward the velocity, × `alignTorque`. Its magnitude scales with **speed²·slip** (∝ dynamic pressure on a tail fin) and is **non-saturating**: `alignTau = -alignTorque · (speed/turnResistanceMaxSpeed)² · slipDeg`.
+
+The weathervane torque is the whole trick: because it always opposes slip, **the nose can never out-run the velocity → spins are structurally impossible** (matches the "MK never 360s me" target). And because it grows with speed², **fast yaw is genuinely heavy while slow yaw stays free** — at high speed it fights any nose-yaw that opens a slip angle, forcing you to strafe/drift through the corner instead of just turning. Both feels fall out of one term. Pitch & roll stay kinematic; only yaw became dynamic. `MomentumSystem.Step` returns `yawRate`; the controller applies `transform.Rotate(up, yawRate·dt)`.
+
+> **Why v², not the grip force.** The first cut tied the aligning torque to the Phase-A lateral-grip force, which **saturates at `maxGripForce`** — so above a low speed the yaw resistance went flat and fast turns felt free (the player caught this immediately: *"the yaw hardness isn't there… I don't have to use strafe at all, I just turn."*). Decoupling the restoring torque from grip and giving it the v² fin law is what restores the speed-dependent weight without a magic "feel" knob — it's the physical dynamic-pressure law.
+
+> This is the "yaw inertia, no-spin" variant — deliberately **not** the full front/rear bicycle model (§6 Variant 2). We did not take the steer-angle input change or the spin-capable rear-tyre model; the single weathervane term restores the missing weight while staying on the no-spin feel target. Full Variant 2 remains available later only if catchable spinouts are ever wanted.
+
+Top yaw rate (straight line, zero slip) ≈ `steerTorque × commandedRate / (yawInertia × yawDamping)`; cornering subtracts the v²-scaled weathervane load, so turns get steadily heavier with speed. Tune `alignTorque` for how heavy/planted fast yaw feels, `yawInertia`+`yawDamping` for how snappy.
 
 ---
 
@@ -172,9 +180,10 @@ The fixed gates `DriftMinSpeed` / `DriftInputDeadzone` and the `_isDrifting` / `
 
 ### Born (physical — every one names a real quantity)
 - `lateralGrip` — cornering stiffness: how much lateral force per unit slip angle, below the peak.
-- `peakSlipAngle` — slip angle at which grip saturates (the breakaway point).
+- `peakSlipAngle` — slip *past* breakaway that reads as a fully committed drift (breakaway itself is emergent: `maxGripForce/lateralGrip`).
 - `maxGripForce` — the friction budget / traction circle radius (force ceiling).
-- **Phase B adds:** `yawInertia`, `frontOffset`, `rearOffset`, `steerAuthority`.
+- **Phase B (no-spin yaw inertia) adds:** `yawInertia` (rotational mass), `steerTorque` (steering torque per unit commanded yaw rate), `alignTorque` (weathervane torque gain — restoring moment ∝ speed²·slip; the no-spin stabilizer + "heavy at speed" dial), `yawDamping` (rotational drag).
+  - *(The full Variant 2 set — `frontOffset`, `rearOffset`, `steerAuthority` + the steer-angle input change — was NOT taken; see §7 Phase B.)*
 
 ### Untouched (not yaw-plane dynamics — leave them all alone)
 `thrustForce`, `strafeThrustForce`, `maxStrafeThrustForce`, `strafeDrag`, `hoverThrustForce`, `hoverDrag`, `linearDrag`, `maxSpeed`; the entire **Brake** block; **Barrel Roll**; **Horizon Reset / Auto-Level**; **Visual Tilt**; **Collision**.

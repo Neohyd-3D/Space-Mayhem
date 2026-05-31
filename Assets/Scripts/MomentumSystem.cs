@@ -12,18 +12,18 @@ namespace SpaceMayhem
     {
         public readonly Vector3    velocity;      // current world velocity, in
         public readonly Vector3    localThrust;   // ship-local thrust, components in [-1,1]
-        public readonly float      yawInput;      // raw yaw command this frame (for counter-strafe sign)
-        public readonly Quaternion heading;       // ship world rotation (post-rotation this frame)
+        public readonly float      yawCommand;    // commanded yaw RATE this frame (deg/s) — drives steering torque
+        public readonly Quaternion heading;       // ship world rotation (pre this-frame dynamic yaw)
         public readonly bool       braking;
         public readonly float      brakePressure; // 0..1
-        public readonly bool       barrelRolling; // steering is skipped mid-roll
+        public readonly bool       barrelRolling; // grip/align is skipped mid-roll
 
-        public MotionIntent(Vector3 velocity, Vector3 localThrust, float yawInput,
+        public MotionIntent(Vector3 velocity, Vector3 localThrust, float yawCommand,
                             Quaternion heading, bool braking, float brakePressure, bool barrelRolling)
         {
             this.velocity      = velocity;
             this.localThrust   = localThrust;
-            this.yawInput      = yawInput;
+            this.yawCommand    = yawCommand;
             this.heading       = heading;
             this.braking       = braking;
             this.brakePressure = brakePressure;
@@ -36,13 +36,15 @@ namespace SpaceMayhem
     public readonly struct MotionState
     {
         public readonly Vector3 velocity;
+        public readonly float   yawRate;    // deg/s — the controller rotates the heading by this × dt
         public readonly bool    isDrifting;
         public readonly float   driftDir;
         public readonly float   driftBlend;
 
-        public MotionState(Vector3 velocity, bool isDrifting, float driftDir, float driftBlend)
+        public MotionState(Vector3 velocity, float yawRate, bool isDrifting, float driftDir, float driftBlend)
         {
             this.velocity   = velocity;
+            this.yawRate    = yawRate;
             this.isDrifting = isDrifting;
             this.driftDir   = driftDir;
             this.driftBlend = driftBlend;
@@ -59,16 +61,23 @@ namespace SpaceMayhem
     {
         public readonly float thrustForce, strafeThrustForce, maxStrafeThrustForce, hoverThrustForce;
         public readonly float linearDrag, strafeDrag, hoverDrag, maxSpeed, turnResistanceMaxSpeed;
-        public readonly float steeringMinSpeed, steeringGripLow, steeringGripHigh, strafeGripScale;
-        public readonly float driftGrip, driftCounterGrip, driftBlendSpeed;
-        public readonly float brakeForce, driftMinSpeed, driftInputDeadzone;
+        public readonly float steeringMinSpeed, brakeForce;
+        // The three physical grip params (replace the old authored grip/drift pile).
+        public readonly float lateralGrip;    // cornering stiffness: lateral force per radian of slip (m/s² per rad)
+        public readonly float peakSlipAngle;  // RADIANS of slip at which the drift reads as fully committed
+        public readonly float maxGripForce;   // friction budget: max lateral force the surface can hold (m/s²)
+        // Yaw-plane dynamics (the heading now has rotational mass; no-spin via the aligning torque).
+        public readonly float yawInertia;     // rotational mass — resists yaw acceleration (higher = heavier nose)
+        public readonly float steerTorque;    // torque produced per unit of commanded yaw rate
+        public readonly float alignTorque;    // weathervane torque gain: restoring moment ∝ speed²·slip (no-spin stabilizer + heavy fast yaw)
+        public readonly float yawDamping;     // rotational drag (1/s) on yaw rate — settles the turn, kills oscillation
 
         public MotionTunables(
             float thrustForce, float strafeThrustForce, float maxStrafeThrustForce, float hoverThrustForce,
             float linearDrag, float strafeDrag, float hoverDrag, float maxSpeed, float turnResistanceMaxSpeed,
-            float steeringMinSpeed, float steeringGripLow, float steeringGripHigh, float strafeGripScale,
-            float driftGrip, float driftCounterGrip, float driftBlendSpeed,
-            float brakeForce, float driftMinSpeed, float driftInputDeadzone)
+            float steeringMinSpeed, float brakeForce,
+            float lateralGrip, float peakSlipAngle, float maxGripForce,
+            float yawInertia, float steerTorque, float alignTorque, float yawDamping)
         {
             this.thrustForce            = thrustForce;
             this.strafeThrustForce      = strafeThrustForce;
@@ -80,15 +89,14 @@ namespace SpaceMayhem
             this.maxSpeed               = maxSpeed;
             this.turnResistanceMaxSpeed = turnResistanceMaxSpeed;
             this.steeringMinSpeed       = steeringMinSpeed;
-            this.steeringGripLow        = steeringGripLow;
-            this.steeringGripHigh       = steeringGripHigh;
-            this.strafeGripScale        = strafeGripScale;
-            this.driftGrip              = driftGrip;
-            this.driftCounterGrip       = driftCounterGrip;
-            this.driftBlendSpeed        = driftBlendSpeed;
             this.brakeForce             = brakeForce;
-            this.driftMinSpeed          = driftMinSpeed;
-            this.driftInputDeadzone     = driftInputDeadzone;
+            this.lateralGrip            = lateralGrip;
+            this.peakSlipAngle          = peakSlipAngle;
+            this.maxGripForce           = maxGripForce;
+            this.yawInertia             = yawInertia;
+            this.steerTorque            = steerTorque;
+            this.alignTorque            = alignTorque;
+            this.yawDamping             = yawDamping;
         }
     }
 
@@ -108,13 +116,19 @@ namespace SpaceMayhem
         Vector3 _blended;
 
         // ── Drift state (owned here now — it IS part of the momentum model) ───────
-        bool  _isDrifting;
-        float _driftDir;     // sign of yaw captured at drift entry (+1 = turning right)
-        float _driftBlend;   // 0→1 eased commitment; drives drift grip + visual yaw/lean
+        // There is no drift "latch" any more: a drift is simply the velocity lagging the
+        // heading. _commitment is the live slip-angle fraction (0 = planted, 1 = full
+        // slide), recomputed every Step from the actual geometry — not a state we enter.
+        float _commitment;   // Clamp01(slipAngle / peakSlipAngle); drives visual yaw/lean + heatmap
+        float _driftDir;     // sign of the current slip (+1 = sliding such that the nose points right of travel)
 
-        public bool  IsDrifting      => _isDrifting;
-        public float DriftCommitment => _driftBlend;
+        // ── Yaw-plane dynamics (the heading is no longer instant — it has inertia) ─
+        float _yawRate;      // deg/s, integrated from steering + self-aligning torque
+
+        public bool  IsDrifting      => _commitment > 0.5f;
+        public float DriftCommitment => _commitment;
         public float DriftDir        => _driftDir;
+        public float YawRate         => _yawRate;
 
         // Smoothly accelerates from fromVelocity to an explicit toVelocity over duration
         // seconds (smoothstep curve). Used for brake boosts where the target is a known
@@ -144,11 +158,21 @@ namespace SpaceMayhem
         public Vector3 GetBlendedVelocity() => _blended;
 
         /// <summary>
-        /// Advance the ship's velocity one tick. PHASE 0: this is the old
-        /// SpaceshipController velocity block, relocated verbatim — same thrust
-        /// integration, same drag, same momentum-steering Slerp, same drift latch,
-        /// same brake decel, same clamp. Behaviour is identical to pre-extraction; this
-        /// only proves the seam (intent in, state out, transforms applied by the caller).
+        /// Advance the ship's velocity AND heading-yaw one tick.
+        ///
+        /// PHASE A — lateral grip: the authored grip/latch pile (Slerp, drift latch,
+        /// counter-strafe detection, strafe-grip scale, hemisphere fade) is gone, replaced
+        /// by ONE physical model — a saturating lateral-grip (tire) force on the slip angle.
+        /// Cornering weight, speed-dependent turn radius, and the drift itself all EMERGE.
+        ///
+        /// PHASE B — yaw inertia: the heading is no longer instant. It carries rotational
+        /// mass (yawInertia) and is driven by two torques — the player's steering torque
+        /// and a directional-stability (weathervane) torque that always pulls the nose back
+        /// toward the velocity. That aligning torque scales with speed² (∝ dynamic pressure,
+        /// like a real fin) and does NOT saturate, so spins are structurally impossible (the
+        /// nose can't out-run the velocity) AND fast yaw is genuinely heavy while slow yaw
+        /// stays free. The controller applies the returned yawRate; pitch & roll stay
+        /// kinematic.
         ///
         /// Math equivalences used to drop the transform: Unity's TransformDirection /
         /// InverseTransformDirection are rotation-only (scale/position independent), so
@@ -158,16 +182,22 @@ namespace SpaceMayhem
         {
             Vector3 velocity = intent.velocity;
 
-            // speedT: 0 at rest → 1 at turnResistanceMaxSpeed. Computed from the incoming
-            // velocity, identical to the controller's rotation-block value (same vector).
+            // speedT: 0 at rest → 1 at turnResistanceMaxSpeed. Used only to scale strafe
+            // thrust with speed (the intentional "strafe gets stronger fast" feature).
             float speedT = Mathf.Clamp01(velocity.magnitude / Mathf.Max(1f, k.turnResistanceMaxSpeed));
+
+            // Captured from the grip block below, then consumed by the yaw dynamics: the
+            // directional-stability torque needs the signed slip and the speed it was
+            // measured at (it grows with speed², so high-speed yaw gets genuinely heavy).
+            float slipForYaw  = 0f;   // signed slip angle this tick (deg) — nose lead over velocity
+            float speedForYaw = 0f;   // horizontal speed (m/s) at the slip measurement
+            bool  gripLive    = false;
 
             if (IsRedirecting)
             {
-                // Brake-release redirect owns velocity; drift eases out.
+                // Brake-release redirect owns velocity outright; no slide while boosting.
                 velocity    = Tick(dt);
-                _isDrifting = false;
-                _driftBlend = Mathf.MoveTowards(_driftBlend, 0f, k.driftBlendSpeed * dt);
+                _commitment = 0f;
             }
             else
             {
@@ -186,69 +216,85 @@ namespace SpaceMayhem
                 velocity *= Mathf.Exp(-k.linearDrag * dt);
 
                 // ── Quadratic strafe/hover drag — gated on active input only ───────
-                // Strafe drag is suppressed while drifting so it never bleeds the lateral
-                // momentum the counter-strafe is building. Uses last tick's _isDrifting
-                // (not yet updated this tick) — matching the original ordering exactly.
+                // Strafe damping fades out as the slide commits (×(1−commitment)) so a
+                // committed drift keeps its lateral momentum instead of having it bled
+                // away. No drift boolean is consulted — just the live commitment.
                 Vector3 localVel = Quaternion.Inverse(intent.heading) * velocity;
-                if (!_isDrifting && Mathf.Abs(intent.localThrust.x) > 1e-5f)
-                    localVel.x -= k.strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
+                if (Mathf.Abs(intent.localThrust.x) > 1e-5f)
+                    localVel.x -= (1f - _commitment) * k.strafeDrag * localVel.x * Mathf.Abs(localVel.x) * dt;
                 if (Mathf.Abs(intent.localThrust.y) > 1e-5f)
                     localVel.y -= k.hoverDrag * localVel.y * Mathf.Abs(localVel.y) * dt;
                 velocity = intent.heading * localVel;
 
-                // ── Momentum steering + drift latch (yaw-plane) ───────────────────
-                float horizSpeed = new Vector3(velocity.x, 0f, velocity.z).magnitude;
-                Vector3 horizFwd = Vector3.ProjectOnPlane(intent.heading * Vector3.forward, Vector3.up);
+                // ── Lateral grip (the one real model) ─────────────────────────────
+                // The slip angle β is the horizontal angle between where the nose points
+                // and where the ship is actually moving. A tire makes a lateral force
+                // roughly proportional to β, up to a friction budget (maxGripForce) — past
+                // that it saturates and slides. That force rotates the velocity toward the
+                // heading at rate ω = F / speed. Because ω falls as speed rises, fast turns
+                // arc wider and break loose sooner — with NO speed knob. Drift is simply
+                // velocity lagging heading: yaw the nose (or strafe) faster than ω can
+                // realign and the gap — the slide — opens on its own.
+                Vector3 horizVel = new Vector3(velocity.x, 0f, velocity.z);
+                float   horizSpeed = horizVel.magnitude;
+                Vector3 horizFwd   = Vector3.ProjectOnPlane(intent.heading * Vector3.forward, Vector3.up);
+
                 if (!intent.barrelRolling && horizSpeed >= k.steeringMinSpeed && horizFwd.sqrMagnitude > 1e-4f)
                 {
                     horizFwd.Normalize();
-                    Vector3 horizVel    = new Vector3(velocity.x, 0f, velocity.z);
-                    Vector3 horizVelDir = horizVel / horizSpeed;
+                    Vector3 velDir = horizVel / horizSpeed;
 
-                    bool yawing        = Mathf.Abs(intent.yawInput)     > 1e-4f;
-                    bool strafing      = Mathf.Abs(intent.localThrust.x) > k.driftInputDeadzone;
-                    bool counterStrafe = yawing && strafing &&
-                                         Mathf.Sign(intent.localThrust.x) != Mathf.Sign(intent.yawInput);
+                    float slipDeg = Vector3.SignedAngle(velDir, horizFwd, Vector3.up); // signed: +slip ↔ rotate velocity +θ onto heading
+                    float beta    = Mathf.Abs(slipDeg) * Mathf.Deg2Rad;                // slip magnitude (rad)
+                    float force   = Mathf.Min(k.lateralGrip * beta, k.maxGripForce);   // saturating tire curve
+                    float omega   = force / horizSpeed;                                // rad/s the velocity realigns
 
-                    if (!_isDrifting)
-                    {
-                        if (counterStrafe && horizSpeed >= k.driftMinSpeed)
-                        {
-                            _isDrifting = true;
-                            _driftDir   = Mathf.Sign(intent.yawInput);
-                        }
-                    }
-                    else if (!counterStrafe || horizSpeed < k.driftMinSpeed)
-                    {
-                        _isDrifting = false;
-                    }
+                    // The grip/weathervane only makes sense in the FORWARD hemisphere. The
+                    // model assumes the nose should point along the velocity; that's only true
+                    // while moving roughly forward. Reverse thrust drives the velocity ~180°
+                    // from the nose, where (a) the grip would curl that backward velocity into
+                    // a circle and (b) the slip-proportional weathervane would slam the nose
+                    // around to "face where it's going" — and at exactly 180° the slip SIGN is
+                    // numerically ambiguous, so it picks a side and spins. Real, but wrong for a
+                    // ship with reverse thrusters. So fade both by how forward we're actually
+                    // moving: cos(slip) = +1 ahead, 0 sideways, ≤0 reversing → no grip, no spin.
+                    float forwardness = Vector3.Dot(velDir, horizFwd);                 // cos(slip)
+                    float rearFade    = Mathf.Clamp01(forwardness);                    // 1 forward → 0 at/over 90° slip
 
-                    _driftBlend = Mathf.MoveTowards(_driftBlend, _isDrifting ? 1f : 0f,
-                                                    k.driftBlendSpeed * dt);
+                    // Active strafe is ALSO commanded velocity, not a slip to correct (it would
+                    // otherwise creep forward + stay dead-slow). To the extent strafe is held the
+                    // grip neither rotates that lateral velocity onto the nose nor weathervanes
+                    // toward it. Release → authority returns, so cornering slip & drift are intact.
+                    float strafeHold    = Mathf.Clamp01(Mathf.Abs(intent.localThrust.x));
+                    float gripAuthority = (1f - strafeHold) * rearFade;
 
-                    float hemisphere   = Mathf.Clamp01(Vector3.Dot(horizVelDir, horizFwd));
-                    float gripBase     = Mathf.Lerp(k.steeringGripLow, k.steeringGripHigh, speedT);
-                    float strafeLoosen = Mathf.Lerp(1f, k.strafeGripScale, Mathf.Abs(intent.localThrust.x));
-                    gripBase *= strafeLoosen;
+                    float stepRad = Mathf.Min(beta, omega * dt) * gripAuthority;       // clamp so it never overshoots heading
 
-                    float counterMag    = Mathf.Clamp01(
-                        (Mathf.Abs(intent.localThrust.x) - k.driftInputDeadzone) / (1f - k.driftInputDeadzone));
-                    float commandedGrip = Mathf.Lerp(k.driftGrip, k.driftCounterGrip, counterMag);
-                    float driftGripNow  = Mathf.Lerp(k.steeringGripLow, commandedGrip, speedT);
-                    float grip          = Mathf.Lerp(gripBase, driftGripNow, _driftBlend) * hemisphere;
+                    Vector3 steeredHoriz = Quaternion.AngleAxis(
+                        stepRad * Mathf.Rad2Deg * Mathf.Sign(slipDeg), Vector3.up) * horizVel;
+                    velocity = steeredHoriz + Vector3.up * velocity.y;                 // lateral only → speed-preserving
 
-                    if (grip > 1e-5f)
-                    {
-                        float steerT = 1f - Mathf.Exp(-grip * dt);
-                        Vector3 steered = Vector3.Slerp(horizVel, horizFwd * horizSpeed, steerT);
-                        velocity = steered + Vector3.up * velocity.y;
-                    }
+                    // "Drifting" physically means the tyre has BROKEN LOOSE — slip past the
+                    // breakaway angle where the grip force saturates (beta_break =
+                    // maxGripForce / lateralGrip). Below breakaway the tyre is still gripping,
+                    // i.e. an ordinary cornering slip — and a hard yaw alone already sits right
+                    // around breakaway, which is why the old beta/peakSlipAngle read saturated
+                    // and tilted the mesh just from YAWING. Measuring commitment as slip BEYOND
+                    // breakaway keeps gripping corners at 0 and only leans on a genuine slide.
+                    // peakSlipAngle is the slip past breakaway that reads as fully committed.
+                    float breakawayBeta = k.maxGripForce / Mathf.Max(1e-4f, k.lateralGrip);
+                    float overslip      = beta - breakawayBeta;
+                    _commitment = Mathf.Clamp01(overslip / Mathf.Max(1e-4f, k.peakSlipAngle)) * rearFade;
+                    _driftDir   = Mathf.Sign(slipDeg);
+
+                    slipForYaw  = slipDeg * gripAuthority;  // commanded (strafe/reverse) slip must NOT weathervane the nose
+                    speedForYaw = horizSpeed;
+                    gripLive    = true;
                 }
-                else if (_isDrifting || _driftBlend > 0f)
+                else
                 {
-                    // Below steering speed or degenerate heading: drop the drift, ease out.
-                    _isDrifting = false;
-                    _driftBlend = Mathf.MoveTowards(_driftBlend, 0f, k.driftBlendSpeed * dt);
+                    // Below steering speed / mid-roll / degenerate heading: no slip to read.
+                    _commitment = 0f;
                 }
 
                 // ── Braking: linear decel toward zero, scaled by pressure ─────────
@@ -257,8 +303,33 @@ namespace SpaceMayhem
                         velocity, Vector3.zero, k.brakeForce * intent.brakePressure * dt);
             }
 
+            // ── Yaw-plane dynamics: τ = I·α, integrated with rotational damping ───
+            // Two torques act on the heading's rotational mass:
+            //   • steerTau  — the player's commanded yaw rate as a steering torque.
+            //   • alignTau  — a directional-stability (weathervane) torque that ALWAYS
+            //                 opposes the slip, pulling the nose back toward the velocity.
+            // alignTau scales with speed² and is NON-saturating: a real fin's restoring
+            // moment grows with dynamic pressure (∝ v²), so the faster you go the harder
+            // the airframe fights any yaw that opens a slip angle. (The earlier version
+            // tied this to the lateral-grip force, which saturates at maxGripForce — so
+            // above a low speed the resistance went flat and fast yaw felt free. Decoupling
+            // it and giving it the v² law is what restores "heavy yaw at speed".) Because
+            // it opposes slip, the nose can never out-run the velocity → spins are
+            // structurally impossible. Runs every tick (at a standstill alignTau is 0, so
+            // you can still pivot in place).
+            float steerTau = intent.yawCommand * k.steerTorque;
+            float alignTau = 0f;
+            if (gripLive)
+            {
+                float speedN = speedForYaw / Mathf.Max(1f, k.turnResistanceMaxSpeed); // 0..~1+ normalized speed
+                alignTau = -k.alignTorque * speedN * speedN * slipForYaw;             // v²·slip, opposes the slip
+            }
+            float yawAccel = (steerTau + alignTau) / Mathf.Max(1e-4f, k.yawInertia);
+            _yawRate += yawAccel * dt;
+            _yawRate *= Mathf.Exp(-k.yawDamping * dt);
+
             velocity = Vector3.ClampMagnitude(velocity, k.maxSpeed);
-            return new MotionState(velocity, _isDrifting, _driftDir, _driftBlend);
+            return new MotionState(velocity, _yawRate, _commitment > 0.5f, _driftDir, _commitment);
         }
     }
 }
