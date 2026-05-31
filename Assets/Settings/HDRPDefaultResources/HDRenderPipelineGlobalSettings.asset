@@ -52,8 +52,8 @@ MonoBehaviour:
   lensAttenuationMode: 0
   colorGradingSpace: 0
   m_ObsoleteDiffusionProfileSettingsList:
-  - {fileID: 11400000, guid: 48e911a1e337b44e2b85dbc65b47a594, type: 2}
-  - {fileID: 11400000, guid: 879ffae44eefa4412bb327928f1a96dd, type: 2}
+  - {fileID: 0}
+  - {fileID: 0}
   specularFade: 0
   rendererListCulling: 0
   m_ObsoleteDefaultVolumeProfile: {fileID: 0}
@@ -557,9 +557,7 @@ MonoBehaviour:
           m_CustomPostProcessTypesAsString: []
         m_AfterPostProcessCustomPostProcesses:
           m_InjectionPoint: 2
-          m_CustomPostProcessTypesAsString:
-          - SpaceMayhem.BrakeRadialBlurEffect, Assembly-CSharp, Version=0.0.0.0,
-            Culture=neutral, PublicKeyToken=null
+          m_CustomPostProcessTypesAsString: []
     - rid: 5245680418730278921
       type: {class: WaterSystemGlobalSettings, ns: UnityEngine.Rendering.HighDefinition, asm: Unity.RenderPipelines.HighDefinition.Runtime}
       data:

@@ -7,19 +7,18 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Dome 1
-  m_Shader: {fileID: -6465566751694194690, guid: b9ffeed72a8d84786b4c039770558c13, type: 3}
+  m_Name: Shader Graphs_Propeller Speed
+  m_Shader: {fileID: -6465566751694194690, guid: 1787204013da145a08e838e734b34986, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
   - _ENABLE_FOG_ON_TRANSPARENT
   - _SURFACE_TYPE_TRANSPARENT
-  m_InvalidKeywords:
-  - _DOUBLESIDED_ON
+  m_InvalidKeywords: []
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
-  m_DoubleSidedGI: 1
-  m_CustomRenderQueue: 3002
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: 3000
   stringTagMap:
     MotionVector: User
     RenderType: Transparent
@@ -52,21 +51,21 @@ Material:
     - _AlphaSrcBlend: 1
     - _BlendMode: 0
     - _ConservativeDepthOffsetEnable: 0
-    - _CullMode: 0
-    - _CullModeForward: 0
+    - _CullMode: 2
+    - _CullModeForward: 2
     - _DepthOffsetEnable: 0
-    - _DoubleSidedEnable: 1
-    - _DoubleSidedGIMode: 1
+    - _DoubleSidedEnable: 0
+    - _DoubleSidedGIMode: 0
     - _DoubleSidedNormalMode: 2
     - _DstBlend: 10
     - _DstBlend2: 10
     - _EnableBlendModePreserveSpecularLighting: 0
     - _EnableFogOnTransparent: 1
     - _ExcludeFromTUAndAA: 0
-    - _Fresnel_Power: 9.99
-    - _OpaqueCullMode: 1
+    - _Gradient_Masl: 2.85
+    - _OpaqueCullMode: 2
     - _PerPixelSorting: 0
-    - _Power_Voronoi: 17.36
+    - _Propeler_Fuel: 1.68
     - _RenderQueueType: 4
     - _SrcBlend: 1
     - _StencilRef: 0
@@ -82,22 +81,23 @@ Material:
     - _TransparentCullMode: 2
     - _TransparentDepthPostpassEnable: 0
     - _TransparentDepthPrepassEnable: 0
-    - _TransparentSortPriority: 2
+    - _TransparentSortPriority: 0
     - _TransparentWritingMotionVec: 0
     - _TransparentZWrite: 0
     - _UseShadowThreshold: 0
-    - _ZTestDepthEqualForOpaque: 2
-    - _ZTestTransparent: 2
+    - _ZTestDepthEqualForOpaque: 4
+    - _ZTestTransparent: 4
     - _ZWrite: 0
+    - _power: -1.08
     m_Colors:
+    - _Color: {r: 0, g: 3.518852, b: 4.0472007, a: 0}
     - _DoubleSidedConstants: {r: 1, g: 1, b: -1, a: 0}
     - _EmissionColor: {r: 1, g: 1, b: 1, a: 1}
-    - _Emissive_Color: {r: 223.93323, g: 0, b: 0, a: 1}
-    - _Tiling: {r: 1, g: 1, b: 0, a: 0}
-    - _Voronoi_Speed: {r: 0.53, g: 0.29, b: 0, a: 0}
+    - _Speed: {r: 0, g: -2.2, b: 0, a: 0}
+    - _Tiling: {r: 0.1, g: 4.42, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
---- !u!114 &4463378861008579670
+--- !u!114 &9038730038360699303
 MonoBehaviour:
   m_ObjectHideFlags: 11
   m_CorrespondingSourceObject: {fileID: 0}
