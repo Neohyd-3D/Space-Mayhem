@@ -59,6 +59,7 @@ namespace SpaceMayhem
         public int settleFrames = 2;
 
         SpaceshipController _controller;
+        RaceParticipant     _participant;   // optional — present only when the ship is in a race
 
         InputAction _strafeX;
         InputAction _thrustZ;
@@ -79,6 +80,7 @@ namespace SpaceMayhem
         void Awake()
         {
             _controller = GetComponent<SpaceshipController>();
+            _participant = GetComponent<RaceParticipant>();   // null when not racing — input runs normally
             if (inputActions == null)
             {
                 Debug.LogError("[SpaceshipInput] No InputActionAsset assigned.", this);
@@ -138,6 +140,14 @@ namespace SpaceMayhem
                 _strafeVertical.ReadValue<float>();
                 _brake.IsPressed();
                 _horizonReset?.IsPressed();
+                _controller.ApplyInput(Vector3.zero, Vector3.zero, false);
+                return;
+            }
+
+            // Race countdown freeze: while the director holds this ship, forward zero input so it
+            // can't move. Reading nothing here is deliberate — the ship sits dead-still until GO.
+            if (_participant != null && _participant.ControlsLocked)
+            {
                 _controller.ApplyInput(Vector3.zero, Vector3.zero, false);
                 return;
             }
