@@ -70,6 +70,10 @@ namespace SpaceMayhem
         public readonly float lateralGrip;    // cornering stiffness: lateral force per radian of slip (m/s² per rad)
         public readonly float peakSlipAngle;  // RADIANS of slip at which the drift reads as fully committed
         public readonly float maxGripForce;   // friction budget: max lateral force the surface can hold (m/s²)
+        // Anti-carve: damp strafe ONLY when it stacks with a same-direction yaw (the "powered carve" that
+        // out-classes drifting). Detected by the product of strafe × yaw-rate, so nothing else is touched.
+        public readonly float carveStrength;     // 0..1 — how much strafe is cut at a full same-direction carve
+        public readonly float carveYawThreshold; // yaw rate (deg/s) at which the carve detection saturates
         // Yaw-plane dynamics (the heading now has rotational mass; no-spin via the aligning torque).
         public readonly float yawInertia;     // rotational mass — resists yaw acceleration (higher = heavier nose)
         public readonly float steerTorque;    // torque produced per unit of commanded yaw rate
@@ -87,15 +91,18 @@ namespace SpaceMayhem
         public readonly float driftBoostMaxSpeed;  // cap on the bonus speed however long the drift held
         public readonly float driftBoostMinCharge; // charge-seconds needed before a drift pays out at all
         public readonly float driftBoostSnap;      // seconds to blend the velocity into the boosted exit
+        public readonly float driftSpeedRetention; // 0..1 — how much of the speed a committed slide would bleed is kept
 
         public MotionTunables(
             float thrustForce, float strafeThrustForce, float maxStrafeThrustForce, float hoverThrustForce,
             float linearDrag, float strafeDrag, float hoverDrag, float maxSpeed, float turnResistanceMaxSpeed,
             float steeringMinSpeed, float brakeForce,
             float lateralGrip, float peakSlipAngle, float maxGripForce,
+            float carveStrength, float carveYawThreshold,
             float yawInertia, float steerTorque, float alignTorque, float yawDamping,
             float pitchInertia, float pitchSteerTorque, float pitchAlignTorque, float pitchDamping, float pitchGrip,
-            float driftBoostGain, float driftBoostMaxSpeed, float driftBoostMinCharge, float driftBoostSnap)
+            float driftBoostGain, float driftBoostMaxSpeed, float driftBoostMinCharge, float driftBoostSnap,
+            float driftSpeedRetention)
         {
             this.thrustForce            = thrustForce;
             this.strafeThrustForce      = strafeThrustForce;
@@ -111,6 +118,8 @@ namespace SpaceMayhem
             this.lateralGrip            = lateralGrip;
             this.peakSlipAngle          = peakSlipAngle;
             this.maxGripForce           = maxGripForce;
+            this.carveStrength          = carveStrength;
+            this.carveYawThreshold      = carveYawThreshold;
             this.yawInertia             = yawInertia;
             this.steerTorque            = steerTorque;
             this.alignTorque            = alignTorque;
@@ -124,6 +133,7 @@ namespace SpaceMayhem
             this.driftBoostMaxSpeed     = driftBoostMaxSpeed;
             this.driftBoostMinCharge    = driftBoostMinCharge;
             this.driftBoostSnap         = driftBoostSnap;
+            this.driftSpeedRetention    = driftSpeedRetention;
         }
     }
 
@@ -173,6 +183,7 @@ namespace SpaceMayhem
         // ── Yaw- & pitch-plane dynamics (the heading is no longer instant — it has inertia) ─
         float _yawRate;      // deg/s, integrated from steering + self-aligning torque
         float _pitchRate;    // deg/s, the vertical twin — same model on the pitch axis
+        float _carve;        // smoothed 0..1 anti-carve signal (strong strafe × same-way commanded yaw)
 
         public bool  IsDrifting      => _commitment > 0.5f;
         public float DriftCommitment => _commitment;
@@ -263,6 +274,22 @@ namespace SpaceMayhem
             }
             else
             {
+                // Horizontal speed carried INTO this tick — the reference the drift-retention pulls
+                // back toward, so a committed slide can't bleed below the speed you entered it with.
+                float driftEntryHorizSpeed = new Vector3(velocity.x, 0f, velocity.z).magnitude;
+
+                // ── Carve signal: strong strafe × same-way COMMANDED yaw, smoothed ─
+                // The product is positive ONLY when strafe and the yaw command agree (the powered carve).
+                // We use the command, not the resulting yaw rate, because strafing itself induces a same-
+                // direction weathervane yaw that would wrongly flag pure strafe. Pure strafe/dodges (no
+                // command), micro-corrections (gentle command), drifts (no strafe) and counter-strafe
+                // (opposite sign → ≤ 0) all read ~0. Consumed by the drift-retention below.
+                {
+                    float yawNorm = Mathf.Clamp(intent.yawCommand / Mathf.Max(1f, k.carveYawThreshold), -1f, 1f);
+                    float carveTarget = Mathf.Clamp01(intent.localThrust.x * yawNorm);
+                    _carve = Mathf.Lerp(_carve, carveTarget, 1f - Mathf.Exp(-12f * dt));
+                }
+
                 // ── Thrust (suppressed while braking — brake wins completely) ──────
                 if (!intent.braking)
                 {
@@ -405,6 +432,48 @@ namespace SpaceMayhem
                         pitchSlipForVane = pitchSlip * Mathf.Rad2Deg * pitchGripAuth; // hover-broken, like slipForYaw
                         speedForPitch    = speed3;
                         pitchLive        = true;
+                    }
+                }
+
+                // ── Drift speed retention — make the slide REWARD speed, not punish it ──
+                // A committed slide normally bleeds speed: the thrust points down the nose (off your
+                // actual line) and drag eats the rest. Pull the horizontal speed back up toward what
+                // you carried into the slide, scaled by how committed the drift is and the retention
+                // knob — so a real drift maintains speed and the exit boost makes it a NET gain. Only
+                // ever restores a LOSS (never caps a gain from thrust), and runs before the brake so
+                // braking still slows you.
+                // The carve forfeits this: a genuine drift keeps its speed, but a same-direction
+                // strafe-carve has its retention scaled away by (1 − carveStrength·carve), so it bleeds
+                // like an un-retained slide and drifting becomes the faster line. carveStrength is now
+                // "how much speed-keeping the carve loses".
+                // Retention rewards a GENUINE slide (commitment > 0). The carve isn't one (commit ~0),
+                // so this never sees it — it only ever protects a real drift's speed.
+                if (_commitment > 0f && k.driftSpeedRetention > 0f)
+                {
+                    float retain = Mathf.Clamp01(_commitment * k.driftSpeedRetention);
+                    Vector3 hv = new Vector3(velocity.x, 0f, velocity.z);
+                    float   hs = hv.magnitude;
+                    if (hs > 1e-3f && hs < driftEntryHorizSpeed && retain > 0f)
+                    {
+                        float restored = Mathf.Lerp(hs, driftEntryHorizSpeed, retain);
+                        velocity = hv * (restored / hs) + Vector3.up * velocity.y;
+                    }
+                }
+
+                // ── Carve scrub — make forcing a strafe-carve COST momentum ───────
+                // The carve (strong strafe × same-way yaw) is a fast, gripping, NO-slide turn that keeps
+                // full speed and out-races a drift. Since it never opens a slide, the retention above can't
+                // touch it — so scrub horizontal speed directly, ∝ the carve signal, like the understeer
+                // cost of forcing a tight line. A real drift keeps its speed (retention) and thus becomes
+                // the faster way through. carveStrength is the scrub (m/s² of decel at a full carve).
+                if (_carve > 0.01f && k.carveStrength > 0f)
+                {
+                    Vector3 hv = new Vector3(velocity.x, 0f, velocity.z);
+                    float   hs = hv.magnitude;
+                    if (hs > 1e-3f)
+                    {
+                        float ns = Mathf.Max(0f, hs - _carve * k.carveStrength * dt);
+                        velocity = hv * (ns / hs) + Vector3.up * velocity.y;
                     }
                 }
 

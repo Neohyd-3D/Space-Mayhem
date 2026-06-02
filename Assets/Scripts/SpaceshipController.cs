@@ -96,6 +96,13 @@ namespace SpaceMayhem
                  "corner. Longer = a smoother surge.")]
         public float driftBoostSnap = 0.25f;
 
+        [Range(0f, 1f)]
+        [Tooltip("How much speed a committed drift keeps instead of bleeding. 0 = old behaviour (a drift " +
+                 "slows you down). 1 = a drift fully maintains the speed you carried into it, so it rewards " +
+                 "you rather than punishing you. Scaled by how committed the slide is — light slips keep " +
+                 "less, deep drifts keep more.")]
+        public float driftSpeedRetention = 1f;
+
         // ── HANDLING (lateral grip) ───────────────────────────────────────────
         // One physical model governs cornering: a saturating tire-style lateral force on
         // the slip angle (angle between the nose and the actual direction of travel).
@@ -122,6 +129,19 @@ namespace SpaceMayhem
         [Tooltip("Your reference cruising speed. Used to scale strafe strength and how heavy turning gets " +
                  "with speed. Set it to your normal flying speed, not the top speed.")]
         public float turnResistanceMaxSpeed = 30f;
+
+        [Tooltip("Anti-carve: how much speed (m/s² of extra braking) you scrub when you strafe HARD in the " +
+                 "same direction you're turning hard — the 'powered carve' that out-races drifting. Forcing " +
+                 "a tight strafe-corner now costs momentum, so a real drift (which keeps its speed) becomes " +
+                 "the faster line. 0 = off. ~40 = a noticeable cost; raise until carving stops winning. " +
+                 "Only bites on strong strafe + strong same-way yaw — pure strafe, dodges, drifts, and " +
+                 "counter-strafe are all free.")]
+        public float carveStrength = 40f;
+
+        [Tooltip("How hard you must be turning (deg/s) before strafing-into-the-turn counts as a carve " +
+                 "rather than a gentle nudge. Higher = only bites on sharp turns; lower = bites on gentler " +
+                 "ones too. Keep it above your normal micro-correction turn rate.")]
+        public float carveYawThreshold = 80f;
 
         // ── HANDLING (yaw inertia) ────────────────────────────────────────────
         // The heading is no longer instant — it carries rotational mass. The player's
@@ -535,9 +555,11 @@ namespace SpaceMayhem
                     linearDrag, strafeDrag, hoverDrag, maxSpeed, turnResistanceMaxSpeed,
                     steeringMinSpeed, brakeForce,
                     lateralGrip, peakSlipAngle * Mathf.Deg2Rad, maxGripForce,
+                    carveStrength, carveYawThreshold,
                     yawInertia, steerTorque, alignTorque, yawDamping,
                     pitchInertia, pitchSteerTorque, pitchAlignTorque, pitchDamping, pitchGrip,
-                    driftBoostGain, driftBoostMaxSpeed, driftBoostMinCharge, driftBoostSnap);
+                    driftBoostGain, driftBoostMaxSpeed, driftBoostMinCharge, driftBoostSnap,
+                    driftSpeedRetention);
 
                 MotionState state = momentum.Step(intent, tunables, dt);
                 currentVelocity = state.velocity;
