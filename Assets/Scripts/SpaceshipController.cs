@@ -21,65 +21,58 @@ namespace SpaceMayhem
     public class SpaceshipController : MonoBehaviour
     {
         [Header("Thrust")]
-        [Tooltip("Acceleration for forward / backward thrust (m/s²). Terminal forward speed = " +
-                 "thrustForce / linearDrag, and time-to-top scales with 1 / linearDrag. To make " +
-                 "the ramp LONGER without dropping the top speed, lower thrustForce AND linearDrag " +
-                 "by the same factor — the ratio holds the ceiling, the smaller drag stretches the climb.")]
+        [Tooltip("How hard the ship accelerates forward/backward. Higher = quicker to reach top speed and " +
+                 "a punchier throttle.")]
         public float thrustForce = 20f;
 
-        [Tooltip("Strafe acceleration (m/s²) at zero speed.")]
+        [Tooltip("How hard the ship strafes side-to-side when barely moving.")]
         public float strafeThrustForce = 30f;
 
-        [Tooltip("Strafe acceleration (m/s²) at turnResistanceMaxSpeed. " +
-                 "Linearly interpolated from strafeThrustForce as speed increases. " +
-                 "Higher than strafeThrustForce = strafing becomes more powerful at speed.")]
+        [Tooltip("How hard the ship strafes side-to-side at cruising speed. Set higher than the at-rest " +
+                 "value to make strafing stronger the faster you go.")]
         public float maxStrafeThrustForce = 30f;
 
-        [Tooltip("Quadratic drag coefficient on strafe (left/right) velocity. " +
-                 "Drag force = strafeDrag × v². Near zero it barely resists, but ramps hard at speed. " +
-                 "Terminal strafe speed ≈ sqrt(strafeThrustForce / strafeDrag).")]
+        [Tooltip("How quickly sideways strafe speed levels off. Higher = strafing tops out sooner and " +
+                 "feels tighter. Lower = strafe drifts faster and further.")]
         public float strafeDrag = 0.05f;
 
-        [Tooltip("Acceleration for up/down hover (m/s²).")]
+        [Tooltip("How hard the ship pushes up/down (hover).")]
         public float hoverThrustForce = 30f;
 
-        [Tooltip("Quadratic drag coefficient on hover (up/down) velocity. " +
-                 "Drag force = hoverDrag × v². Near zero it barely resists, but ramps hard at speed. " +
-                 "Terminal hover speed ≈ sqrt(hoverThrustForce / hoverDrag).")]
+        [Tooltip("How quickly up/down hover speed levels off. Higher = hover tops out sooner. Lower = " +
+                 "floatier vertical movement.")]
         public float hoverDrag = 0.05f;
 
-        [Tooltip("Maximum velocity magnitude (m/s).")]
+        [Tooltip("Top speed (m/s).")]
         public float maxSpeed = 50f;
 
         [Range(0f, 5f)]
-        [Tooltip("Velocity decay rate (1/s) — sets BOTH the acceleration time-constant (1/linearDrag) " +
-                 "and the coast-down time. Lower = slower to reach top speed AND longer glide when you " +
-                 "let off. Terminal forward speed = thrustForce / linearDrag, so move this together with " +
-                 "thrustForce to keep the same top speed while changing how long the ramp takes.")]
+        [Tooltip("How fast the ship slows when you let off the throttle, and how long it takes to build up " +
+                 "to top speed. Higher = quick stop and a short run-up. Lower = long glide and a slow climb " +
+                 "to top speed.")]
         public float linearDrag = 0.4f;
 
         [Header("Brake")]
-        [Tooltip("Maximum deceleration (m/s²) at full brake pressure. " +
-                 "Uses linear decel so the ship can reach a full stop.")]
+        [Tooltip("How hard the brake stops the ship at full pressure. Higher = stops faster.")]
         public float brakeForce = 80f;
 
-        [Tooltip("How fast brake pressure builds from 0 → 1 while the button is held (per second). " +
-                 "2 = full pressure in 0.5 s; 1 = full pressure in 1 s.")]
+        [Tooltip("How fast the brake reaches full strength while held. 2 = full in 0.5 s; 1 = full in 1 s.")]
         public float brakeBuildUp = 2f;
 
-        [Tooltip("Speed threshold (m/s) that separates reward from penalty on brake release. ~7 m/s ≈ 25 km/h.")]
+        [Tooltip("The entry speed that divides a rewarding brake-release boost from a penalty. Brake from " +
+                 "above this = boost; below = penalty.")]
         public float brakeThresholdSpeed = 7f;
 
-        [Tooltip("Boost multiplier when entry speed was ABOVE the threshold. " +
-                 "boostPeak = entrySpeed × boostMultiplier × pressure. >1.0 = net gain.")]
+        [Tooltip("Speed boost when you release the brake after braking from a fast entry. Above 1 = you " +
+                 "come out faster than you went in.")]
         public float boostMultiplier = 1.2f;
 
-        [Tooltip("Boost multiplier when entry speed was BELOW the threshold. " +
-                 "<1.0 = you exit slower than you entered (punishment for spamming at low speed).")]
+        [Tooltip("Speed penalty when you brake from low speed. Below 1 = you come out slower (discourages " +
+                 "brake-spamming).")]
         public float brakePenaltyMultiplier = 0.5f;
 
-        [Tooltip("Seconds to ramp velocity from current to the boosted peak. " +
-                 "Short (0.15–0.25) = snappy burst. Longer = rocket-like thrust.")]
+        [Tooltip("How quickly the brake-release boost kicks in. Short (0.15–0.25) = a snappy burst. " +
+                 "Longer = a smoother, rocket-like surge.")]
         public float boostSnapDuration = 0.2f;
 
         [Header("Drift Reward")]
@@ -87,21 +80,20 @@ namespace SpaceMayhem
         // slide, the more charge), and the moment grip re-establishes the charge releases
         // as a forward burst along the new heading. The burst can briefly push you above
         // your thrust-terminal cruise; drag then bleeds it back down. Tunable below.
-        [Tooltip("Bonus exit speed (m/s) earned per charge-second of drift. Charge = how committed " +
-                 "the slide is, integrated over how long you hold it — so ~1s of a full slide ≈ this " +
-                 "many m/s of burst. HIGHER = drifting pays out harder.")]
+        [Tooltip("How much exit speed a drift rewards — the harder and longer you slide, the bigger the " +
+                 "boost. Higher = drifting pays out harder.")]
         public float driftBoostGain = 40f;
 
-        [Tooltip("Hard cap (m/s) on the drift burst no matter how long you hold the slide. Stops " +
-                 "endless donuts from banking an enormous boost.")]
+        [Tooltip("Cap on the drift boost no matter how long you hold the slide. Stops endless donuts from " +
+                 "banking a huge boost.")]
         public float driftBoostMaxSpeed = 80f;
 
-        [Tooltip("Minimum charge-seconds before a drift pays out at all. A quick flick of slip earns " +
-                 "nothing; you have to actually commit. ~0.25 ≈ a quarter-second of full commitment.")]
+        [Tooltip("How long you must hold a real slide before it pays out at all. A quick flick earns " +
+                 "nothing — you have to commit.")]
         public float driftBoostMinCharge = 0.25f;
 
-        [Tooltip("Seconds to blend velocity into the boosted exit. Short (0.2–0.3) = a snappy kick " +
-                 "out of the corner; longer = a smoother surge.")]
+        [Tooltip("How quickly the drift boost kicks in on exit. Short (0.2–0.3) = a snappy kick out of the " +
+                 "corner. Longer = a smoother surge.")]
         public float driftBoostSnap = 0.25f;
 
         // ── HANDLING (lateral grip) ───────────────────────────────────────────
@@ -110,31 +102,25 @@ namespace SpaceMayhem
         // Cornering weight, the way fast turns arc wider, and the drift itself ALL emerge
         // from these three — there is no separate turn-authority curve or drift latch.
         [Header("Handling (lateral grip)")]
-        [Tooltip("CORNERING STIFFNESS — lateral force (m/s² per radian of slip) the surface makes " +
-                 "while still gripping. HIGHER = the velocity snaps to the nose harder, tighter steering " +
-                 "with little slip. LOWER = looser, the ship washes out into a slide more readily. " +
-                 "The realign rate is force/speed, so the SAME stiffness already feels heavier at speed.")]
+        [Tooltip("How hard the ship grips when cornering. Higher = sharp, tight turns that stick to where " +
+                 "the nose points. Lower = looser, slides into drifts more easily.")]
         public float lateralGrip = 80f;
 
-        [Tooltip("FRICTION BUDGET — the maximum lateral force (m/s²) the surface can hold before it " +
-                 "saturates and the ship slides. Once cornering demand exceeds this, the velocity can no " +
-                 "longer keep up with the nose and a drift opens. LOWER = breaks loose sooner / slides easier.")]
+        [Tooltip("How hard you can corner before the ship breaks loose into a drift. Higher = holds tight " +
+                 "turns longer. Lower = breaks into a slide sooner.")]
         public float maxGripForce = 30f;
 
-        [Tooltip("DRIFT COMMITMENT RANGE (degrees) — how much slip PAST breakaway counts as a fully " +
-                 "committed drift (commitment = 1). Breakaway itself is emergent: maxGripForce/lateralGrip " +
-                 "(the angle where the tyre lets go). Below breakaway the ship is gripping → commitment 0 → " +
-                 "no lean, so simply yawing no longer tilts the mesh; only a real slide past breakaway does. " +
-                 "Drives the visual swivel/lean and the path-tracer heatmap. LOWER = the lean snaps in fast " +
-                 "once you break loose; HIGHER = the lean builds gradually as the slide deepens.")]
+        [Tooltip("How deep a slide must get to read as a full drift (drives the lean and drift visuals). " +
+                 "Lower = the drift lean snaps in fast once you break loose. Higher = it builds in gradually " +
+                 "as the slide deepens.")]
         public float peakSlipAngle = 20f;
 
-        [Tooltip("Speed (m/s) below which the grip model is disabled. Guards the zero-speed direction " +
-                 "singularity; keep just above autoLevelSpeedThreshold so the two never overlap.")]
+        [Tooltip("Below this speed, steering grip switches off so the ship doesn't spin on the spot at a " +
+                 "standstill. Leave low.")]
         public float steeringMinSpeed = 1.5f;
 
-        [Tooltip("Reference speed (m/s) for the speed-scaled strafe thrust lerp (strafeThrustForce → " +
-                 "maxStrafeThrustForce). Set to your intended cruising speed, not maxSpeed.")]
+        [Tooltip("Your reference cruising speed. Used to scale strafe strength and how heavy turning gets " +
+                 "with speed. Set it to your normal flying speed, not the top speed.")]
         public float turnResistanceMaxSpeed = 30f;
 
         // ── HANDLING (yaw inertia) ────────────────────────────────────────────
@@ -143,28 +129,49 @@ namespace SpaceMayhem
         // pulls the nose back toward the velocity. That aligning term makes spins
         // impossible AND makes yaw feel heavier the faster you go — both emerge from it.
         [Header("Handling (yaw inertia)")]
-        [Tooltip("ROTATIONAL MASS — how much the nose resists changes to its turn rate. " +
-                 "HIGHER = heavier, the turn takes longer to wind up and to stop; LOWER = darty, " +
-                 "near-instant. This is what was missing after Phase A made yaw instant.")]
+        [Tooltip("How heavy the nose feels when turning left/right. Higher = weighty, takes a moment to " +
+                 "wind up and to stop. Lower = darty and near-instant.")]
         public float yawInertia = 0.2f;
 
-        [Tooltip("STEER TORQUE — turning force produced per unit of commanded yaw rate. " +
-                 "HIGHER = the ship reaches its turn rate faster / turns harder for the same input. " +
-                 "Trades off against yawInertia and yawDamping to set your top yaw rate.")]
+        [Tooltip("How hard your stick input turns the ship left/right. Higher = turns harder and reaches " +
+                 "its turn rate faster.")]
         public float steerTorque = 1f;
 
-        [Tooltip("WEATHERVANE TORQUE — directional-stability gain. The restoring moment that pulls " +
-                 "the nose back toward the direction of travel scales with speed² (∝ dynamic pressure, " +
-                 "like a real tail fin), so this is THE dial for how heavy fast yaw feels: at low " +
-                 "speed yaw is near-free, at high speed it fights hard and forces you to strafe/drift " +
-                 "through the corner. Also the no-spin stabilizer — HIGHER = planted/snaps straight, " +
-                 "LOWER = looser, the nose wanders off heading more freely.")]
+        [Tooltip("How hard it is to turn at speed. Higher = turning gets very heavy when you're fast (you " +
+                 "have to strafe/drift through corners) and the ship snaps straight. Lower = stays light " +
+                 "and loose at speed.")]
         public float alignTorque = 2f;
 
-        [Tooltip("YAW DAMPING (1/s) — rotational drag that settles the turn rate and kills wobble. " +
-                 "HIGHER = the turn stops crisply when you let go; LOWER = it coasts/oscillates. " +
-                 "Top yaw rate ≈ steerTorque × commandedRate / (yawInertia × yawDamping).")]
+        [Tooltip("How quickly the turn settles when you let go of the stick. Higher = stops crisply. " +
+                 "Lower = coasts on and can wobble.")]
         public float yawDamping = 5f;
+
+        // ── HANDLING (pitch inertia — vertical) ───────────────────────────────
+        // The vertical mirror of the yaw model. Pointing the nose up/down is a rotation with its own
+        // inertia and a weathervane that pulls the nose back onto the velocity ∝ speed² — so pitch is
+        // HARD at speed, exactly like yaw. You break that coupling by HOVERING while you pitch, just as
+        // you strafe to break it laterally. A vertical grip then rolls the velocity onto the nose so the
+        // ship actually climbs/dives. Separate tunables from yaw so pitch can feel heavier or lighter.
+        [Header("Handling (pitch inertia — vertical)")]
+        [Tooltip("How heavy the nose feels when pointing up/down. Higher = weighty, slower to start and " +
+                 "stop. Lower = darty.")]
+        public float pitchInertia = 0.2f;
+
+        [Tooltip("How hard your stick input pitches the nose up/down. Higher = pitches harder and faster.")]
+        public float pitchSteerTorque = 1f;
+
+        [Tooltip("How hard it is to climb/dive at speed. Higher = pitching gets very heavy when you're " +
+                 "fast (hover while you pitch to break it). Lower = stays light at speed.")]
+        public float pitchAlignTorque = 2f;
+
+        [Tooltip("How quickly pitching settles when you let go of the stick. Higher = stops crisply. " +
+                 "Lower = coasts on and can wobble.")]
+        public float pitchDamping = 5f;
+
+        [Tooltip("How strongly the ship follows the nose when climbing/diving. Higher = commits hard to " +
+                 "where you point vertically. Lower = floatier, takes longer to actually change height. " +
+                 "Hover to break it loose.")]
+        public float pitchGrip = 80f;
 
         [Header("Drift Visual (cosmetic only)")]
         [Tooltip("Degrees the model swivels INTO the slide so the drift reads. Pure visual.")]
@@ -179,6 +186,23 @@ namespace SpaceMayhem
 
         [Tooltip("Speed threshold (m/s) below which the ship auto-levels — only when not braking.")]
         public float autoLevelSpeedThreshold = 1f;
+
+        [Tooltip("Level to the TRACK SURFACE instead of world-flat: a ray cast straight down beneath " +
+                 "the ship reads the floor's normal, and every auto-level (idle, R3, drift-boost exit) " +
+                 "aligns the ship's up to it — so it hugs banks and hills. Falls back to world-up when " +
+                 "airborne. Turn off for the old world-flat leveling.")]
+        public bool alignLevelToGround = true;
+
+        [Tooltip("Layers the ground probe can hit. Keep the ship/players off it (its own colliders are " +
+                 "excluded regardless); leave as Everything to align to any surface below.")]
+        public LayerMask groundMask = ~0;
+
+        [Tooltip("How far below the ship (m) to look for a surface to align to.")]
+        public float groundProbeDistance = 60f;
+
+        [Tooltip("How fast the read surface-normal is chased (1/s). Higher = snappier alignment but more " +
+                 "twitch across seams; lower = smoother, calmer. Also eases back to world-up when airborne.")]
+        public float groundNormalSmooth = 8f;
 
         [Header("Barrel Roll")]
         [Tooltip("Time in seconds to complete a full 360° barrel roll.")]
@@ -202,6 +226,11 @@ namespace SpaceMayhem
 
         [Tooltip("Max pitch angle (degrees) when thrusting forward/back at full deflection.")]
         public float accelerationTilt = 8f;
+
+        [Tooltip("How much the nose visually leans INTO a climb/dive when you pitch — the cosmetic twin of " +
+                 "the drift lean, scaled by how fast you're pitching. Higher = more exaggerated lead; 0 = off. " +
+                 "Pure visual.")]
+        public float pitchLean = 0.12f;
 
         [Tooltip("Maximum lean angle clamp (degrees) on any axis.")]
         public float maxLeanAngle = 25f;
@@ -269,6 +298,17 @@ namespace SpaceMayhem
 
         public bool IsResettingHorizon => _isResettingHorizon;
 
+        // Drift-boost auto-level: a timed flatten triggered on a drift-boost exit, lasting exactly
+        // the boost's duration so the redirect and the level finish together.
+        bool  _driftLeveling;
+        float _driftLevelTimer;
+        float _driftLevelDuration;
+
+        // Ground-aligned leveling: the smoothed "up" all auto-leveling aims at — the track-surface
+        // normal beneath the ship, eased toward world-up when there's nothing below.
+        Vector3 _groundUp = Vector3.up;
+        readonly RaycastHit[] _groundHits = new RaycastHit[8];
+
         // Drift state lives in MomentumSystem now (it is part of the momentum model).
         // These delegate so external readers (ShipPathTracer, visuals) are unaffected.
         public bool  IsDrifting      => momentum != null && momentum.IsDrifting;
@@ -325,10 +365,37 @@ namespace SpaceMayhem
             _isResettingHorizon = true;
         }
 
+        // The "up" every auto-level aims at. With alignLevelToGround on, it's the smoothed normal of
+        // the track surface beneath the ship (cast straight down in the ship's own frame, so it finds
+        // the floor it's riding even on a banked wall); otherwise, and whenever nothing's below, it
+        // eases back to world up. Own colliders are skipped via root, which also keeps it correct
+        // per-ship in multiplayer. One cheap ray per frame, smoothed so seams don't make it twitch.
+        void UpdateGroundUp(float dt)
+        {
+            Vector3 target = Vector3.up;
+            if (alignLevelToGround)
+            {
+                int n = Physics.RaycastNonAlloc(transform.position, -transform.up, _groundHits,
+                                                groundProbeDistance, groundMask, QueryTriggerInteraction.Ignore);
+                float best = float.MaxValue;
+                for (int i = 0; i < n; i++)
+                {
+                    var h = _groundHits[i];
+                    if (h.collider == null || h.collider.transform.root == transform.root) continue; // skip self
+                    if (h.distance < best) { best = h.distance; target = h.normal; }
+                }
+            }
+            _groundUp = Vector3.Slerp(_groundUp, target, 1f - Mathf.Exp(-groundNormalSmooth * dt));
+            if (_groundUp.sqrMagnitude < 1e-6f) _groundUp = Vector3.up;
+            _groundUp.Normalize();
+        }
+
         void Update()
         {
             float dt = Time.deltaTime;
             if (dt <= 0f) return;
+
+            UpdateGroundUp(dt);   // refresh the surface-aligned 'up' all leveling aims at
 
             // ── Brake press — record entry speed and whether above threshold ──
             if (!_wasBraking && isBraking)
@@ -348,12 +415,8 @@ namespace SpaceMayhem
             }
             _wasBraking = isBraking;
 
-            // ── Pitch (kinematic — instant, like before) ──────────────────────
-            // Pitch and roll stay kinematic; only YAW became dynamic. Yaw is integrated
-            // in MomentumSystem (it now has rotational inertia) and applied just after
-            // Step from the returned yawRate — so it is NOT applied here.
-            float scaledPitch = _rotationInput.x;
-            if (Mathf.Abs(scaledPitch) > 1e-5f) transform.Rotate(Vector3.right, scaledPitch, Space.Self);
+            // Pitch is now DYNAMIC like yaw — integrated in MomentumSystem (inertia + weathervane) and
+            // applied just after Step from the returned pitchRate. Only roll stays kinematic (barrel roll).
 
             // ── Barrel roll ───────────────────────────────────────────────────
             if (_barrelRollCooldownTimer > 0f) _barrelRollCooldownTimer -= dt;
@@ -381,10 +444,10 @@ namespace SpaceMayhem
             if (!isBraking && !_isBarrelRolling && !_isResettingHorizon &&
                 currentVelocity.magnitude < autoLevelSpeedThreshold)
             {
-                Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+                Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, _groundUp);
                 if (flatFwd.sqrMagnitude > 1e-4f)
                 {
-                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, Vector3.up);
+                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, _groundUp);
                     transform.rotation = Quaternion.RotateTowards(
                         transform.rotation, levelTarget, autoLevelSpeed * dt);
                 }
@@ -397,10 +460,10 @@ namespace SpaceMayhem
             // Completes when within 0.5° of level.
             if (_isResettingHorizon)
             {
-                Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, Vector3.up);
+                Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, _groundUp);
                 if (flatFwd.sqrMagnitude > 1e-4f)
                 {
-                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, Vector3.up);
+                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, _groundUp);
                     transform.rotation = Quaternion.RotateTowards(
                         transform.rotation, levelTarget, autoLevelSpeed * dt);
                     if (Quaternion.Angle(transform.rotation, levelTarget) < 0.5f)
@@ -409,6 +472,37 @@ namespace SpaceMayhem
                 else
                 {
                     _isResettingHorizon = false;
+                }
+            }
+
+            // ── Drift-boost auto-level ────────────────────────────────────────
+            // Fired on a drift-boost exit; flattens the horizon over EXACTLY the boost's
+            // duration so the redirect and the level land together. Like the manual reset
+            // it re-aims at the live heading each frame, so steering still reads mid-snap.
+            // The dt/remaining factor converges onto the (moving) level target precisely as
+            // the timer expires — a clean, duration-locked ease rather than a fixed rate.
+            if (_driftLeveling && !_isBarrelRolling)
+            {
+                _driftLevelTimer += dt;
+                Vector3 flatFwd = Vector3.ProjectOnPlane(transform.forward, _groundUp);
+                if (flatFwd.sqrMagnitude > 1e-4f)
+                {
+                    Quaternion levelTarget = Quaternion.LookRotation(flatFwd.normalized, _groundUp);
+                    float remaining = _driftLevelDuration - _driftLevelTimer;
+                    if (remaining <= dt)
+                    {
+                        transform.rotation = levelTarget;
+                        _driftLeveling = false;
+                    }
+                    else
+                    {
+                        transform.rotation = Quaternion.Slerp(
+                            transform.rotation, levelTarget, dt / remaining);
+                    }
+                }
+                else
+                {
+                    _driftLeveling = false;
                 }
             }
 
@@ -431,9 +525,10 @@ namespace SpaceMayhem
                 // degrees-this-frame, so dividing by dt recovers the rate the player asked
                 // for (works for both mouse pixel-delta and gamepad stick). MomentumSystem
                 // turns it into a steering torque against the heading's inertia.
-                float yawCommand = _rotationInput.y / dt;
+                float yawCommand   = _rotationInput.y / dt;
+                float pitchCommand = _rotationInput.x / dt;   // same deg-this-frame → rate conversion
                 var intent = new MotionIntent(
-                    currentVelocity, _thrustInput, yawCommand,
+                    currentVelocity, _thrustInput, yawCommand, pitchCommand,
                     transform.rotation, isBraking, _brakePressure, _isBarrelRolling);
                 var tunables = new MotionTunables(
                     thrustForce, strafeThrustForce, maxStrafeThrustForce, hoverThrustForce,
@@ -441,20 +536,35 @@ namespace SpaceMayhem
                     steeringMinSpeed, brakeForce,
                     lateralGrip, peakSlipAngle * Mathf.Deg2Rad, maxGripForce,
                     yawInertia, steerTorque, alignTorque, yawDamping,
+                    pitchInertia, pitchSteerTorque, pitchAlignTorque, pitchDamping, pitchGrip,
                     driftBoostGain, driftBoostMaxSpeed, driftBoostMinCharge, driftBoostSnap);
 
                 MotionState state = momentum.Step(intent, tunables, dt);
                 currentVelocity = state.velocity;
 
-                // Apply the dynamic yaw the model integrated this tick (deg/s × dt).
+                // Apply the dynamic yaw AND pitch the model integrated this tick (deg/s × dt). Both axes
+                // now go through the same inertia+weathervane model; only roll stays kinematic.
                 float yawDeg = state.yawRate * dt;
                 if (Mathf.Abs(yawDeg) > 1e-6f) transform.Rotate(Vector3.up, yawDeg, Space.Self);
+                float pitchDeg = state.pitchRate * dt;
+                if (Mathf.Abs(pitchDeg) > 1e-6f) transform.Rotate(Vector3.right, pitchDeg, Space.Self);
+
+                // Drift-boost exit → start a timed auto-level matching the boost's duration, so the
+                // ship snaps onto the nose and flattens out in one motion as it leaves the slide.
+                if (momentum.DriftBoostFired && !_isBarrelRolling)
+                {
+                    _driftLeveling      = true;
+                    _driftLevelTimer    = 0f;
+                    _driftLevelDuration = Mathf.Max(0.01f, driftBoostSnap);
+                }
             }
             else
             {
-                // Fallback when no MomentumSystem is attached: instant commanded yaw.
+                // Fallback when no MomentumSystem is attached: instant commanded yaw + pitch.
                 if (Mathf.Abs(_rotationInput.y) > 1e-5f)
                     transform.Rotate(Vector3.up, _rotationInput.y, Space.Self);
+                if (Mathf.Abs(_rotationInput.x) > 1e-5f)
+                    transform.Rotate(Vector3.right, _rotationInput.x, Space.Self);
             }
 
             // ── Movement + collision ──────────────────────────────────────────
@@ -614,6 +724,13 @@ namespace SpaceMayhem
             float pitchFromVertical = -_thrustInput.y * hoverTilt;
             float pitchFromAccel    =  _thrustInput.z * accelerationTilt;
             float pitch = Mathf.Clamp(pitchFromVertical + pitchFromAccel, -maxLeanAngle, maxLeanAngle);
+
+            // Lean the nose INTO the climb/dive — the cosmetic twin of the drift lean, scaled by how fast
+            // the ship is actually pitching. Pure visual, added on top of the input-driven tilt.
+            float pitchLeanAngle = momentum != null
+                ? Mathf.Clamp(momentum.PitchRate * pitchLean, -maxLeanAngle, maxLeanAngle)
+                : 0f;
+            pitch += pitchLeanAngle;
 
             // Drift commitment yaws and banks the visible mesh INTO the slide so the drift
             // reads. Drift state lives in MomentumSystem now; read it back for the visual.

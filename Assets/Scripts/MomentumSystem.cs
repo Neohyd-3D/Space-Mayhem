@@ -13,17 +13,19 @@ namespace SpaceMayhem
         public readonly Vector3    velocity;      // current world velocity, in
         public readonly Vector3    localThrust;   // ship-local thrust, components in [-1,1]
         public readonly float      yawCommand;    // commanded yaw RATE this frame (deg/s) — drives steering torque
-        public readonly Quaternion heading;       // ship world rotation (pre this-frame dynamic yaw)
+        public readonly float      pitchCommand;  // commanded pitch RATE this frame (deg/s) — drives pitch steer torque
+        public readonly Quaternion heading;       // ship world rotation (pre this-frame dynamic yaw/pitch)
         public readonly bool       braking;
         public readonly float      brakePressure; // 0..1
         public readonly bool       barrelRolling; // grip/align is skipped mid-roll
 
-        public MotionIntent(Vector3 velocity, Vector3 localThrust, float yawCommand,
+        public MotionIntent(Vector3 velocity, Vector3 localThrust, float yawCommand, float pitchCommand,
                             Quaternion heading, bool braking, float brakePressure, bool barrelRolling)
         {
             this.velocity      = velocity;
             this.localThrust   = localThrust;
             this.yawCommand    = yawCommand;
+            this.pitchCommand  = pitchCommand;
             this.heading       = heading;
             this.braking       = braking;
             this.brakePressure = brakePressure;
@@ -37,14 +39,16 @@ namespace SpaceMayhem
     {
         public readonly Vector3 velocity;
         public readonly float   yawRate;    // deg/s — the controller rotates the heading by this × dt
+        public readonly float   pitchRate;  // deg/s — pitch about the ship's right axis, applied like yawRate
         public readonly bool    isDrifting;
         public readonly float   driftDir;
         public readonly float   driftBlend;
 
-        public MotionState(Vector3 velocity, float yawRate, bool isDrifting, float driftDir, float driftBlend)
+        public MotionState(Vector3 velocity, float yawRate, float pitchRate, bool isDrifting, float driftDir, float driftBlend)
         {
             this.velocity   = velocity;
             this.yawRate    = yawRate;
+            this.pitchRate  = pitchRate;
             this.isDrifting = isDrifting;
             this.driftDir   = driftDir;
             this.driftBlend = driftBlend;
@@ -71,6 +75,13 @@ namespace SpaceMayhem
         public readonly float steerTorque;    // torque produced per unit of commanded yaw rate
         public readonly float alignTorque;    // weathervane torque gain: restoring moment ∝ speed²·slip (no-spin stabilizer + heavy fast yaw)
         public readonly float yawDamping;     // rotational drag (1/s) on yaw rate — settles the turn, kills oscillation
+        // Pitch-plane dynamics — the vertical mirror of the yaw model. Pitch is hard at speed (weathervane
+        // ∝ speed²) and you break the coupling by HOVERING, exactly as strafing breaks the lateral one.
+        public readonly float pitchInertia;     // rotational mass of the pitch axis
+        public readonly float pitchSteerTorque; // torque per unit commanded pitch rate
+        public readonly float pitchAlignTorque; // weathervane gain ∝ speed²·slip — pulls the nose onto the velocity (the "hard at speed")
+        public readonly float pitchDamping;     // rotational drag (1/s) on pitch rate
+        public readonly float pitchGrip;        // vertical grip stiffness — rotates the velocity's climb angle onto the nose (non-saturating: no drift)
         // Drift-reward boost: a held slide charges, the exit releases a forward burst.
         public readonly float driftBoostGain;      // m/s of bonus speed per accumulated charge-second
         public readonly float driftBoostMaxSpeed;  // cap on the bonus speed however long the drift held
@@ -83,6 +94,7 @@ namespace SpaceMayhem
             float steeringMinSpeed, float brakeForce,
             float lateralGrip, float peakSlipAngle, float maxGripForce,
             float yawInertia, float steerTorque, float alignTorque, float yawDamping,
+            float pitchInertia, float pitchSteerTorque, float pitchAlignTorque, float pitchDamping, float pitchGrip,
             float driftBoostGain, float driftBoostMaxSpeed, float driftBoostMinCharge, float driftBoostSnap)
         {
             this.thrustForce            = thrustForce;
@@ -103,6 +115,11 @@ namespace SpaceMayhem
             this.steerTorque            = steerTorque;
             this.alignTorque            = alignTorque;
             this.yawDamping             = yawDamping;
+            this.pitchInertia           = pitchInertia;
+            this.pitchSteerTorque       = pitchSteerTorque;
+            this.pitchAlignTorque       = pitchAlignTorque;
+            this.pitchDamping           = pitchDamping;
+            this.pitchGrip              = pitchGrip;
             this.driftBoostGain         = driftBoostGain;
             this.driftBoostMaxSpeed     = driftBoostMaxSpeed;
             this.driftBoostMinCharge    = driftBoostMinCharge;
@@ -145,16 +162,23 @@ namespace SpaceMayhem
         float _driftCharge;  // ∫ commitment dt over the held slide (charge-seconds)
         bool  _driftArmed;   // true once a slide has crossed the arm threshold this run
         bool  _wasStrafing;  // was the player holding strafe last tick — to catch the release edge
+        bool  _driftBoostFired; // one-shot: true ONLY on the Step where the drift-reward boost fires
 
         public float DriftCharge => _driftCharge;
+        // True for the single Step in which a drift boost just fired — the controller reads this to
+        // sync effects to the boost (e.g. auto-level the horizon over the boost's duration). Distinct
+        // from a brake boost, which never raises it.
+        public bool DriftBoostFired => _driftBoostFired;
 
-        // ── Yaw-plane dynamics (the heading is no longer instant — it has inertia) ─
+        // ── Yaw- & pitch-plane dynamics (the heading is no longer instant — it has inertia) ─
         float _yawRate;      // deg/s, integrated from steering + self-aligning torque
+        float _pitchRate;    // deg/s, the vertical twin — same model on the pitch axis
 
         public bool  IsDrifting      => _commitment > 0.5f;
         public float DriftCommitment => _commitment;
         public float DriftDir        => _driftDir;
         public float YawRate         => _yawRate;
+        public float PitchRate       => _pitchRate;
 
         // Smoothly accelerates from fromVelocity to an explicit toVelocity over duration
         // seconds (smoothstep curve). Used for brake boosts where the target is a known
@@ -213,6 +237,7 @@ namespace SpaceMayhem
         public MotionState Step(in MotionIntent intent, in MotionTunables k, float dt)
         {
             Vector3 velocity = intent.velocity;
+            _driftBoostFired = false;   // one-shot, re-armed each Step
 
             // speedT: 0 at rest → 1 at turnResistanceMaxSpeed. Used only to scale strafe
             // thrust with speed (the intentional "strafe gets stronger fast" feature).
@@ -224,6 +249,11 @@ namespace SpaceMayhem
             float slipForYaw  = 0f;   // signed slip angle this tick (deg) — nose lead over velocity
             float speedForYaw = 0f;   // horizontal speed (m/s) at the slip measurement
             bool  gripLive    = false;
+
+            // Same, for the pitch (vertical) plane — consumed by the pitch dynamics below.
+            float pitchSlipForVane = 0f;   // signed vertical slip (deg), hover-broken — feeds the pitch weathervane
+            float speedForPitch    = 0f;   // total speed (m/s) at the slip measurement
+            bool  pitchLive        = false;
 
             if (IsRedirecting)
             {
@@ -329,6 +359,55 @@ namespace SpaceMayhem
                     _commitment = 0f;
                 }
 
+                // ── Pitch grip (vertical twin of the lateral tire force) ──────────
+                // Rotates the velocity's CLIMB ANGLE onto the nose's, azimuth-preserving, at ω = force/
+                // speed — so like cornering, the realign slows as you speed up. NON-saturating (no cap),
+                // so there's no "vertical breakaway"; the way you open a vertical slip is by HOVERING,
+                // which fades this grip's authority (and the weathervane's) exactly as strafing fades the
+                // lateral one. The signed slip + speed are captured for the pitch weathervane below.
+                if (!intent.barrelRolling)
+                {
+                    float speed3 = velocity.magnitude;
+                    Vector3 headFwd3 = intent.heading * Vector3.forward;
+                    if (speed3 >= k.steeringMinSpeed && headFwd3.sqrMagnitude > 1e-4f)
+                    {
+                        headFwd3.Normalize();
+                        Vector3 velDir3 = velocity / speed3;
+                        float elevVel  = Mathf.Asin(Mathf.Clamp(velDir3.y, -1f, 1f));
+                        float elevHead = Mathf.Asin(Mathf.Clamp(headFwd3.y, -1f, 1f));
+                        float pitchSlip = elevHead - elevVel;                   // rad, + = nose above velocity
+
+                        // Hover (vertical thrust) breaks the vertical coupling, like strafe laterally;
+                        // fade when reversing too (the model only makes sense moving roughly forward).
+                        float pitchForwardness = Vector3.Dot(velDir3, headFwd3);
+                        float pitchRearFade    = Mathf.Clamp01(pitchForwardness);
+                        float hoverHold        = Mathf.Clamp01(Mathf.Abs(intent.localThrust.y));
+                        float pitchGripAuth    = (1f - hoverHold) * pitchRearFade;
+
+                        // Velocity → nose (elevation only). Needs a horizontal travel direction to hold
+                        // the azimuth fixed; near-vertical flight has none, so skip the rotation there.
+                        Vector3 hVel = new Vector3(velocity.x, 0f, velocity.z);
+                        float hSpeed = hVel.magnitude;
+                        if (hSpeed > 1e-3f)
+                        {
+                            float force   = k.pitchGrip * Mathf.Abs(pitchSlip);   // non-saturating
+                            float omega   = force / speed3;
+                            float stepRad = Mathf.Min(Mathf.Abs(pitchSlip), omega * dt) * pitchGripAuth;
+                            if (stepRad > 1e-6f)
+                            {
+                                Vector3 hDir = hVel / hSpeed;
+                                Vector3 tgt  = hDir * Mathf.Cos(elevHead) + Vector3.up * Mathf.Sin(elevHead);
+                                Vector3 nd   = Vector3.RotateTowards(velDir3, tgt, stepRad, 0f);
+                                velocity = nd * speed3;                          // direction-only → speed-preserving
+                            }
+                        }
+
+                        pitchSlipForVane = pitchSlip * Mathf.Rad2Deg * pitchGripAuth; // hover-broken, like slipForYaw
+                        speedForPitch    = speed3;
+                        pitchLive        = true;
+                    }
+                }
+
                 // ── Braking: linear decel toward zero, scaled by pressure ─────────
                 if (intent.brakePressure > 0f)
                     velocity = Vector3.MoveTowards(
@@ -387,6 +466,7 @@ namespace SpaceMayhem
                                 float speedNow = new Vector3(velocity.x, 0f, velocity.z).magnitude;
                                 Vector3 target = fwd * (speedNow + bonus) + Vector3.up * velocity.y;
                                 StartBoost(velocity, target, k.driftBoostSnap); // redirects onto the nose; clears charge
+                                _driftBoostFired = true;                        // signal the controller (auto-level sync)
                             }
                         }
                         _driftCharge = 0f;
@@ -422,8 +502,25 @@ namespace SpaceMayhem
             _yawRate += yawAccel * dt;
             _yawRate *= Mathf.Exp(-k.yawDamping * dt);
 
+            // ── Pitch-plane dynamics: the SAME τ = I·α model on the pitch axis ────
+            // pitchSteerTau is your commanded pitch; pitchAlignTau is the weathervane that pulls the nose
+            // back onto the velocity, ∝ speed² — so high-speed pitch is genuinely heavy and you HOVER to
+            // break it (hover already faded pitchSlipForVane above, just as strafe fades the yaw slip).
+            // Sign: pitchSlipForVane > 0 means the nose points ABOVE the velocity; +rate pitches the nose
+            // DOWN (about +X), so a positive align torque restores it — opposing the slip, like yaw.
+            float pitchSteerTau = intent.pitchCommand * k.pitchSteerTorque;
+            float pitchAlignTau = 0f;
+            if (pitchLive)
+            {
+                float speedNp = speedForPitch / Mathf.Max(1f, k.turnResistanceMaxSpeed);
+                pitchAlignTau = k.pitchAlignTorque * speedNp * speedNp * pitchSlipForVane;
+            }
+            float pitchAccel = (pitchSteerTau + pitchAlignTau) / Mathf.Max(1e-4f, k.pitchInertia);
+            _pitchRate += pitchAccel * dt;
+            _pitchRate *= Mathf.Exp(-k.pitchDamping * dt);
+
             velocity = Vector3.ClampMagnitude(velocity, k.maxSpeed);
-            return new MotionState(velocity, _yawRate, _commitment > 0.5f, _driftDir, _commitment);
+            return new MotionState(velocity, _yawRate, _pitchRate, _commitment > 0.5f, _driftDir, _commitment);
         }
     }
 }
