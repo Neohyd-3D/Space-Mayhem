@@ -602,6 +602,25 @@ namespace SpaceMayhem
         // frames), we cast the ship's sphere along the path and advance only as far as the
         // first contact, apply the impact velocity response, then slide the leftover travel
         // along the surface. Repeated a few times so corners resolve in one frame.
+        // Velocity response to contacting a surface with the given outward `normal`. Removes the
+        // component driving us INTO the wall (head-on energy is lost), then scrubs grazing speed by
+        // Coulomb friction ∝ how hard we hit. Shared by the swept (impact) and resting (depenetration)
+        // passes so the model lives in ONE place — this is the single seam the collision rework reshapes
+        // (impact severity, a recovery window, and an angle-aware scrub-drag will all land here).
+        void ApplyCollisionResponse(Vector3 normal)
+        {
+            float into = Vector3.Dot(currentVelocity, -normal);
+            if (into <= 0f) return;
+
+            currentVelocity += normal * into;            // kill the into-surface component
+            float tang = currentVelocity.magnitude;
+            if (tang > 1e-4f)
+            {
+                float scrubbed = Mathf.Max(0f, tang - collisionFriction * into);
+                currentVelocity *= scrubbed / tang;
+            }
+        }
+
         void SweepMove(Vector3 displacement)
         {
             float dist = displacement.magnitude;
@@ -636,20 +655,9 @@ namespace SpaceMayhem
                     center    += dir * advance;
                     remaining -= advance;
 
-                    // Impact response, same Coulomb model as resting contact: kill the
-                    // into-surface component, then scrub grazing speed ∝ how hard we hit.
-                    Vector3 n    = hit.normal;
-                    float   into = Vector3.Dot(currentVelocity, -n);
-                    if (into > 0f)
-                    {
-                        currentVelocity += n * into;
-                        float tang = currentVelocity.magnitude;
-                        if (tang > 1e-4f)
-                        {
-                            float scrubbed = Mathf.Max(0f, tang - collisionFriction * into);
-                            currentVelocity *= scrubbed / tang;
-                        }
-                    }
+                    // Impact response (shared with resting contact).
+                    Vector3 n = hit.normal;
+                    ApplyCollisionResponse(n);
 
                     // Redirect the leftover travel along the wall (slide, don't stop dead).
                     Vector3 slide = Vector3.ProjectOnPlane(dir * remaining, n);
@@ -711,23 +719,8 @@ namespace SpaceMayhem
 
                     transform.position += dir * (depth + 0.001f);
 
-                    float into = Vector3.Dot(currentVelocity, -dir);
-                    if (into > 0f)
-                    {
-                        // Kill the component driving us into the wall (head-on energy is lost).
-                        currentVelocity += dir * into;
-
-                        // Coulomb friction on the remaining grazing velocity: the harder we were
-                        // pressing into the surface, the more sideways speed gets scrubbed. A
-                        // shallow drag has tiny `into` → barely slows; a steep hit presses hard →
-                        // sheds a lot. Dead-on already lost everything above, so this adds nothing.
-                        float tang = currentVelocity.magnitude;
-                        if (tang > 1e-4f)
-                        {
-                            float scrubbed = Mathf.Max(0f, tang - collisionFriction * into);
-                            currentVelocity *= scrubbed / tang;
-                        }
-                    }
+                    // Resting-contact velocity response (shared with the swept impact).
+                    ApplyCollisionResponse(dir);
 
                     anyHit = true;
                 }
