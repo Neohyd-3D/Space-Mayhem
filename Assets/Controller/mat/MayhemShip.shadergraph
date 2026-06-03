@@ -202,7 +202,7 @@
                 "m_Node": {
                     "m_Id": "d4f59e9a0cdd4e8dbd3ffb8773fa46b8"
                 },
-                "m_SlotId": 6
+                "m_SlotId": 7
             },
             "m_InputSlot": {
                 "m_Node": {
@@ -259,8 +259,8 @@
     },
     "m_FragmentContext": {
         "m_Position": {
-            "x": 0.0,
-            "y": 200.0
+            "x": 0.000006139278411865234,
+            "y": 195.0
         },
         "m_Blocks": [
             {
@@ -1171,7 +1171,7 @@
     "m_TessellationMaxDisplacement": 0.009999999776482582,
     "m_DebugSymbols": false,
     "m_Version": 2,
-    "inspectorFoldoutMask": 0
+    "inspectorFoldoutMask": 9
 }
 
 {
@@ -2010,10 +2010,10 @@
         "m_Expanded": true,
         "m_Position": {
             "serializedVersion": "2",
-            "x": -1328.0,
-            "y": 914.0000610351563,
-            "width": 208.0001220703125,
-            "height": 431.99993896484377
+            "x": -456.5,
+            "y": 318.5,
+            "width": 208.0,
+            "height": 432.0
         }
     },
     "m_Slots": [

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace SpaceMayhem
 {
@@ -224,6 +225,20 @@ namespace SpaceMayhem
                  "twitch across seams; lower = smoother, calmer. Also eases back to world-up when airborne.")]
         public float groundNormalSmooth = 8f;
 
+        [Header("Off-track penalty")]
+        [Tooltip("Slow the ship when it leaves the racing surface (flies off the ribbon or climbs too high) " +
+                 "— the Mario-Kart off-road feel, so staying on the line matters. Reuses the downward probe.")]
+        public bool enableOffTrackPenalty = true;
+
+        [Tooltip("Distance (m) the surface below can be before you count as OFF-track. Set above your normal " +
+                 "flying height with margin (you fly ~35m up, so keep this well above that); beyond it — or " +
+                 "over the void with nothing below — the penalty kicks in.")]
+        public float offTrackHeight = 70f;
+
+        [Tooltip("Drag (1/s) applied while off-track — how hard you bleed speed off the surface. Higher = " +
+                 "leaving the ribbon is brutal; 0 = no penalty (just a flag for FX).")]
+        public float offTrackDrag = 3f;
+
         [Header("Barrel Roll")]
         [Tooltip("Time in seconds to complete a full 360° barrel roll.")]
         public float barrelRollDuration = 0.45f;
@@ -265,17 +280,68 @@ namespace SpaceMayhem
         [Tooltip("Layers tested during depenetration. Exclude the ship's own layer to avoid self-collision.")]
         public LayerMask collisionMask = ~0;
 
-        [Range(1, 8)]
-        [Tooltip("Max depenetration passes per frame. 3 is enough for nearly all geometry.")]
-        public int depenetrationIterations = 3;
+        // ── Collision feel: a real spring ───────────────────────────────────────────────────────────
+        // The wall is a damped spring. The collider is allowed to sink INTO it up to collisionGive (the
+        // 'deformation' — it hides inside the bigger hull), and a force proportional to how deep it is
+        // (collisionStiffness, Hooke's law) pushes back out, while collisionDamping bleeds energy so you
+        // leave slower than you came (restitution). This is why it bounces like a ball: it decelerates over
+        // the give, momentarily stops at max compression, then springs back out — never sticking (there's
+        // always an outward force) and never snapping (the force is finite, over a distance). Fast hits use
+        // the whole give and bottom out firmer; gentle hits barely dent it. All emergent.
 
-        [Range(0f, 3f)]
-        [Tooltip("Surface friction on impact — how much sideways speed is scrubbed per unit of " +
-                 "head-on impact speed. A glancing graze barely presses into the wall (tiny into-" +
-                 "speed) so it scrubs almost nothing; a hard angled hit presses harder so it " +
-                 "scrubs more; a dead-on hit already loses its whole forward component to the " +
-                 "normal removal. Loss therefore emerges from the hit angle, not a fixed penalty.")]
-        public float collisionFriction = 0.5f;
+        [Min(0f)]
+        [Tooltip("How far the collider may sink INTO a wall before bottoming out (metres) — the ball's " +
+                 "'give'. This IS the softness: bigger = a longer, weightier, rubbery bounce; smaller = a " +
+                 "firm, crisp one. Keep it within the gap between the small collider and the hull so it never " +
+                 "visibly clips. Fast enough hits use it all and bottom out (firmer) — which is correct.")]
+        public float collisionGive = 2f;
+
+        [Min(0f)]
+        [Tooltip("Spring stiffness — how hard the wall pushes back per metre of give (Hooke's law). Higher = " +
+                 "a stronger, faster rebound that stops you in less give; lower = the wall lets you sink in " +
+                 "softly. Together with give this sets the contact TIME — the weight of the bounce.")]
+        public float collisionStiffness = 1000f;
+
+        [Min(0f)]
+        [Tooltip("Spring damping — how much energy the bounce absorbs, i.e. how much speed you LOSE (the " +
+                 "opposite of bounciness/restitution). 0 = a near-perfect rebound (keep your speed, reversed); " +
+                 "higher = the wall eats your speed and you leave slow. This is the crash's speed cost.")]
+        public float collisionDamping = 14f;
+
+        [Tooltip("How fast ALONG-wall (sliding) speed bleeds while you scrape a wall (1/s). Touches only the " +
+                 "part of your motion parallel to the wall, so a glancing graze keeps most of its speed and " +
+                 "skims off, while pinning yourself to a wall and sliding gradually drains you. 0 = " +
+                 "frictionless slide; higher = scraping really costs you.")]
+        public float collisionScrapeDrag = 2f;
+
+        [FormerlySerializedAs("collisionImpactReference")]
+        [Tooltip("The head-on closing speed (m/s) that counts as a full-force crash — the yardstick every " +
+                 "hit is measured against. With the stun threshold below, it sets how hard you must hit " +
+                 "before a crash stuns you at all. Lower = even moderate bumps register as a real crash.")]
+        public float collisionFullForceSpeed = 60f;
+
+        [Range(0f, 1f)]
+        [FormerlySerializedAs("collisionMinThrust")]
+        [Tooltip("The LOWEST your thrust control drops to at the instant of a full-force crash. It's a " +
+                 "fraction of normal authority, not a force. From here control eases back to full over the " +
+                 "recovery window below. 0 = dead, no thrust at the moment of impact; ~0.15 = sluggish but " +
+                 "crawling; 1 = no control penalty at all.")]
+        public float collisionThrustFloor = 0.15f;
+
+        [FormerlySerializedAs("collisionRecoveryTimeout")]
+        [FormerlySerializedAs("collisionRecoveryTime")]
+        [Tooltip("How long control stays knocked out after a FULL-FORCE crash (seconds) — the bounce window. " +
+                 "You lose control on impact and it eases back over this time. Lighter hits recover " +
+                 "proportionally faster (a graze barely stuns), so the real recovery length comes from how " +
+                 "hard you hit. Longer = a bad crash really costs you; shorter = you shrug hits off quickly.")]
+        public float collisionRecoveryTime = 0.7f;
+
+        [Range(0f, 1f)]
+        [FormerlySerializedAs("collisionRecoveryThreshold")]
+        [Tooltip("How head-on a hit must be (as a fraction of the full-force speed) before it STUNS you at " +
+                 "all — keeps gentle grazes and wall-skims from muting your thrust. Raise so only real " +
+                 "crashes punish you.")]
+        public float collisionStunThreshold = 0.12f;
 
         [Tooltip("Radius of the swept sphere used for CONTINUOUS collision (anti-tunneling). The " +
                  "move is cast along the velocity each frame so a thin wall can't be skipped at " +
@@ -283,6 +349,10 @@ namespace SpaceMayhem
                  "Smaller = squeezes through tighter gaps but can clip corners; larger = safer but " +
                  "stops short of walls.")]
         public float sweepRadius = 0f;
+
+        [Tooltip("TEMP diagnostic: logs each wall contact (collider type, thickness, depth reached, whether " +
+                 "it crossed/tunnelled) to the Console. Turn on, do one high-speed crash, then off.")]
+        public bool logCollisions = false;
 
         [Header("Dependencies")]
         public MomentumSystem momentum;
@@ -297,12 +367,26 @@ namespace SpaceMayhem
         bool  _brakeAboveThreshold; // was entry speed above brakeThresholdSpeed?
         float _brakeEntrySpeed;     // speed captured at the moment brake was first pressed
 
-        // Reused buffer for DepenetrateFromWorld — avoids per-frame GC allocation.
-        static readonly Collider[] _overlapBuffer = new Collider[16];
+        // Reused buffer for the penetration spherecast — avoids per-substep GC allocation.
+        static readonly RaycastHit[] _hitBuffer = new RaycastHit[16];
 
-        // All colliders that belong to this ship or its children — never depenetrate against these.
+        // All colliders that belong to this ship or its children — never collide against these.
         readonly System.Collections.Generic.HashSet<Collider> _ownColliders =
             new System.Collections.Generic.HashSet<Collider>();
+
+        // Collision recovery: the impact knocks out your control, and it eases back over the bounce. The
+        // hit sets _recoveryLevel to its severity (head-on = full loss, graze = a little); it then decays
+        // at a fixed rate, so a harder hit — starting higher — also takes proportionally LONGER to clear.
+        // Both the depth and the length of the stun come straight from the impact, nothing else.
+        float _recoveryLevel;       // control-loss from a crash: severity at impact → 0 as it recovers
+        bool    _contactActive;     // currently resting/pressing against a wall (spring engaged)
+        Vector3 _contactNormal;     // locked entry-side normal, so deep contact never ejects out the far face
+        bool    _hadSweptHit;       // this substep's swept move hit a surface (bootstraps a fresh contact)
+        Vector3 _lastHitNormal;     // that swept hit's surface normal
+
+        /// <summary>0 (in control) → 1 (just took a full crash). Drives thrust suppression now and the
+        /// camera shock later. Set by the impact's severity, then eases to 0 over the bounce window.</summary>
+        public float CollisionRecovery => _recoveryLevel;
 
         // Barrel roll state
         bool    _isBarrelRolling;
@@ -328,6 +412,11 @@ namespace SpaceMayhem
         // normal beneath the ship, eased toward world-up when there's nothing below.
         Vector3 _groundUp = Vector3.up;
         readonly RaycastHit[] _groundHits = new RaycastHit[8];
+        float _groundDistance = float.MaxValue;   // distance to the surface below (from the same probe)
+        bool  _offTrack;                          // true when no surface is within offTrackHeight below
+
+        /// <summary>True while the ship is off the racing surface (and the penalty is on). For FX/HUD.</summary>
+        public bool IsOffTrack => _offTrack;
 
         // Drift state lives in MomentumSystem now (it is part of the momentum model).
         // These delegate so external readers (ShipPathTracer, visuals) are unaffected.
@@ -343,7 +432,7 @@ namespace SpaceMayhem
         {
             if (momentum == null) momentum = GetComponent<MomentumSystem>();
 
-            // Cache every collider on this GO and its children so DepenetrateFromWorld
+            // Cache every collider on this GO and its children so ResolveSpringContact
             // never tries to push out of the ship's own mesh geometry.
             foreach (var col in GetComponentsInChildren<Collider>(includeInactive: true))
                 _ownColliders.Add(col);
@@ -392,19 +481,24 @@ namespace SpaceMayhem
         // per-ship in multiplayer. One cheap ray per frame, smoothed so seams don't make it twitch.
         void UpdateGroundUp(float dt)
         {
-            Vector3 target = Vector3.up;
-            if (alignLevelToGround)
+            // One downward probe serves two jobs: the surface NORMAL (for leveling) and the surface
+            // DISTANCE (for the off-track penalty), so we always cast even when leveling is off.
+            Vector3 normal = Vector3.up;
+            _groundDistance = float.MaxValue;
+            int n = Physics.RaycastNonAlloc(transform.position, -transform.up, _groundHits,
+                                            groundProbeDistance, groundMask, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < n; i++)
             {
-                int n = Physics.RaycastNonAlloc(transform.position, -transform.up, _groundHits,
-                                                groundProbeDistance, groundMask, QueryTriggerInteraction.Ignore);
-                float best = float.MaxValue;
-                for (int i = 0; i < n; i++)
-                {
-                    var h = _groundHits[i];
-                    if (h.collider == null || h.collider.transform.root == transform.root) continue; // skip self
-                    if (h.distance < best) { best = h.distance; target = h.normal; }
-                }
+                var h = _groundHits[i];
+                if (h.collider == null || h.collider.transform.root == transform.root) continue; // skip self
+                if (h.distance < _groundDistance) { _groundDistance = h.distance; normal = h.normal; }
             }
+
+            // Off the racing surface when nothing's within reach below — flew off the ribbon or climbed
+            // too high. Drives the off-track speed penalty in Update.
+            _offTrack = enableOffTrackPenalty && _groundDistance > offTrackHeight;
+
+            Vector3 target = (alignLevelToGround && _groundDistance < float.MaxValue) ? normal : Vector3.up;
             _groundUp = Vector3.Slerp(_groundUp, target, 1f - Mathf.Exp(-groundNormalSmooth * dt));
             if (_groundUp.sqrMagnitude < 1e-6f) _groundUp = Vector3.up;
             _groundUp.Normalize();
@@ -547,8 +641,15 @@ namespace SpaceMayhem
                 // turns it into a steering torque against the heading's inertia.
                 float yawCommand   = _rotationInput.y / dt;
                 float pitchCommand = _rotationInput.x / dt;   // same deg-this-frame → rate conversion
+
+                // Collision recovery suppresses thrust so a crash's speed loss can't be instantly thrust
+                // back: authority drops to collisionThrustFloor at the instant of impact and eases back to
+                // full as the stun (CollisionRecovery) decays over the bounce. This is what makes a crash
+                // cost lap time — and a head-on slam, stunning harder, holds you down longer.
+                float thrustAuthority = Mathf.Lerp(1f, collisionThrustFloor, CollisionRecovery);
+
                 var intent = new MotionIntent(
-                    currentVelocity, _thrustInput, yawCommand, pitchCommand,
+                    currentVelocity, _thrustInput * thrustAuthority, yawCommand, pitchCommand,
                     transform.rotation, isBraking, _brakePressure, _isBarrelRolling);
                 var tunables = new MotionTunables(
                     thrustForce, strafeThrustForce, maxStrafeThrustForce, hoverThrustForce,
@@ -589,145 +690,168 @@ namespace SpaceMayhem
                     transform.Rotate(Vector3.right, _rotationInput.x, Space.Self);
             }
 
-            // ── Movement + collision ──────────────────────────────────────────
-            // Swept (continuous) move first so a wall can't be tunnelled through at
-            // speed, then a depenetration pass to settle any resting overlap.
-            SweepMove(currentVelocity * dt);
-            if (shipCollider != null)
-                DepenetrateFromWorld();
+            // ── Off-track penalty ─────────────────────────────────────────────
+            // Off the racing surface (set by the downward probe in UpdateGroundUp) you bleed speed hard,
+            // so cutting off the ribbon or flying too high costs you — the staying-on-the-line enforcer.
+            if (_offTrack && offTrackDrag > 0f)
+                currentVelocity *= Mathf.Exp(-offTrackDrag * dt);
+
+            // ── Movement + spring contact ─────────────────────────────────────
+            // Substepped so a fast frame is resolved in small slices that can't skip a wall, each slice
+            // moved then sprung. The spring decelerates-and-rebounds you and sets _recoveryLevel from how
+            // hard you drove in (which knocks out control).
+            MoveAndCollide(dt);
+
+            // ── Control recovery ──────────────────────────────────────────────
+            // The stun (set by the spring on impact) eases back over the window, so control returns as the
+            // bounce settles. Speed is handled by the spring itself, not here.
+            if (_recoveryLevel > 0f)
+                _recoveryLevel = Mathf.Max(0f, _recoveryLevel - dt / Mathf.Max(0.01f, collisionRecoveryTime));
         }
 
-        // Continuous-collision integration. Instead of teleporting the ship by the full
-        // per-frame displacement (which lets fast ships skip clean over thin walls between
-        // frames), we cast the ship's sphere along the path and advance only as far as the
-        // first contact, apply the impact velocity response, then slide the leftover travel
-        // along the surface. Repeated a few times so corners resolve in one frame.
-        // Velocity response to contacting a surface with the given outward `normal`. Removes the
-        // component driving us INTO the wall (head-on energy is lost), then scrubs grazing speed by
-        // Coulomb friction ∝ how hard we hit. Shared by the swept (impact) and resting (depenetration)
-        // passes so the model lives in ONE place — this is the single seam the collision rework reshapes
-        // (impact severity, a recovery window, and an angle-aware scrub-drag will all land here).
-        void ApplyCollisionResponse(Vector3 normal)
+        // Swept sphere radius used for the move / anti-tunnel cast.
+        float ColliderRadius()
         {
-            float into = Vector3.Dot(currentVelocity, -normal);
-            if (into <= 0f) return;
-
-            currentVelocity += normal * into;            // kill the into-surface component
-            float tang = currentVelocity.magnitude;
-            if (tang > 1e-4f)
-            {
-                float scrubbed = Mathf.Max(0f, tang - collisionFriction * into);
-                currentVelocity *= scrubbed / tang;
-            }
-        }
-
-        void SweepMove(Vector3 displacement)
-        {
-            float dist = displacement.magnitude;
-            if (dist < 1e-6f) return;
-
-            // No collider (or sweeping disabled) → plain kinematic move.
-            if (shipCollider == null)
-            {
-                transform.position += displacement;
-                return;
-            }
-
-            const float skin = 0.02f;
             Bounds b = shipCollider.bounds;
-            float radius = sweepRadius > 1e-4f
+            return sweepRadius > 1e-4f
                 ? sweepRadius
                 : Mathf.Max(0.05f, Mathf.Min(b.extents.x, b.extents.y, b.extents.z));
-
-            Vector3 startCenter = b.center;   // sphere origin tracks the collider centre
-            Vector3 center      = startCenter;
-            Vector3 dir         = displacement / dist;
-            float   remaining   = dist;
-
-            for (int i = 0; i < 4 && remaining > 1e-5f; i++)
-            {
-                if (Physics.SphereCast(center, radius, dir, out RaycastHit hit,
-                        remaining + skin, collisionMask, QueryTriggerInteraction.Ignore)
-                    && !_ownColliders.Contains(hit.collider) && !hit.collider.isTrigger
-                    && hit.distance > 1e-4f)   // distance 0 = already overlapping; leave it to depenetration
-                {
-                    float advance = Mathf.Max(0f, hit.distance - skin);
-                    center    += dir * advance;
-                    remaining -= advance;
-
-                    // Impact response (shared with resting contact).
-                    Vector3 n = hit.normal;
-                    ApplyCollisionResponse(n);
-
-                    // Redirect the leftover travel along the wall (slide, don't stop dead).
-                    Vector3 slide = Vector3.ProjectOnPlane(dir * remaining, n);
-                    remaining = slide.magnitude;
-                    dir       = remaining > 1e-5f ? slide / remaining : Vector3.zero;
-                    if (dir == Vector3.zero) break;
-                }
-                else
-                {
-                    center += dir * remaining;
-                    remaining = 0f;
-                }
-            }
-
-            transform.position += center - startCenter;
         }
 
-        void DepenetrateFromWorld()
+        // World-space centre of the ship collider from the CURRENT transform. We move the transform directly
+        // every substep WITHOUT a physics sync, so shipCollider.bounds.center lags behind (badly at speed) —
+        // querying there misses the wall entirely. Deriving the centre from the live transform fixes that.
+        Vector3 ShipCenter()
         {
-            // Broad-phase first — skip SyncTransforms entirely if nothing is nearby.
-            // This avoids the expensive all-transforms sync every frame when flying
-            // in open air, which was causing periodic frame hitches.
-            Bounds b0     = shipCollider.bounds;
-            float  radius = b0.extents.magnitude;
-            int broadHits = Physics.OverlapSphereNonAlloc(
-                b0.center, radius, _overlapBuffer,
+            Transform t = shipCollider.transform;
+            switch (shipCollider)
+            {
+                case SphereCollider s:  return t.TransformPoint(s.center);
+                case CapsuleCollider c: return t.TransformPoint(c.center);
+                case BoxCollider bx:    return t.TransformPoint(bx.center);
+                default:                return shipCollider.bounds.center;
+            }
+        }
+
+        // Move + collide, SUBSTEPPED. A fast frame (displacement bigger than a wall is thick) would skip
+        // straight through if moved in one go — and the penalty spring can't catch what's already on the far
+        // side. So we slice the frame into pieces no longer than a fraction of the collider radius; each
+        // slice is small enough that the swept move can't jump a wall, and the spring resolves it before the
+        // next slice. Sliding along walls still falls out for free (tangential motion isn't blocked).
+        void MoveAndCollide(float dt)
+        {
+            if (shipCollider == null) { transform.position += currentVelocity * dt; return; }
+
+            float radius = ColliderRadius();
+            float dist   = currentVelocity.magnitude * dt;
+            int   steps  = Mathf.Clamp(Mathf.CeilToInt(dist / Mathf.Max(0.05f, radius * 0.4f)), 1, 12);
+            float subDt  = dt / steps;
+
+            for (int s = 0; s < steps; s++)
+            {
+                SweptStep(currentVelocity * subDt, radius);
+                ResolveSpringContact(subDt, radius);
+            }
+        }
+
+        // One swept slice: move, but never let the collider centre end more than `give` past the first wall
+        // in the path. With small slices this keeps a fast ship from teleporting through.
+        void SweptStep(Vector3 step, float radius)
+        {
+            _hadSweptHit = false;
+            float d = step.magnitude;
+            if (d < 1e-7f) return;
+            Vector3 dir = step / d;
+
+            if (Physics.SphereCast(ShipCenter(), radius, dir, out RaycastHit hit, d,
+                    collisionMask, QueryTriggerInteraction.Ignore)
+                && !_ownColliders.Contains(hit.collider) && !hit.collider.isTrigger)
+            {
+                _hadSweptHit  = true;          // bootstraps the spring's contact normal for this substep
+                _lastHitNormal = hit.normal;
+                float allowed = hit.distance + collisionGive;
+                if (d > allowed) d = allowed;
+            }
+            transform.position += dir * d;
+        }
+
+        // The wall as a damped spring — but penetration is measured with a SPHERECAST, not ComputePenetration.
+        // ComputePenetration is useless against concave MeshColliders (the track is one): it only sees the
+        // nearest triangle and reports ~0 depth, so the spring never pushes and you tunnel straight through.
+        // A spherecast hits any mesh reliably, so we cast from a point safely OUTSIDE the surface back toward
+        // the ship: the gap between where the sphere first touches and where the ship centre actually is gives
+        // the true penetration depth. Push out by Hooke·depth minus damping (restitution), capped at the give
+        // with a hard backstop so a fast hit / held thrust can't drive through.
+        void ResolveSpringContact(float dt, float radius)
+        {
+            // Contact normal: reuse the locked one if already engaged, else bootstrap from this substep's
+            // swept hit (the surface we just drove into). No swept hit and not already in contact → nothing.
+            Vector3 n;
+            if (_contactActive)      n = _contactNormal;
+            else if (_hadSweptHit)   n = _lastHitNormal;
+            else                     return;
+
+            // Measure penetration along n. Cast a sphere from L out along the normal, back toward the surface.
+            // It first touches when its centre is `radius` from the surface; the ship centre sits `pen` deeper
+            // than that, so pen = L − hitDistance. Use the NonAlloc form and take the nearest NON-own hit —
+            // the cast comes back through where the ship is, so it would otherwise hit our own collider first.
+            Vector3 center = ShipCenter();
+            float   L      = radius + collisionGive + 1f;
+            Vector3 origin = center + n * L;
+            int nh = Physics.SphereCastNonAlloc(origin, radius, -n, _hitBuffer, L,
                 collisionMask, QueryTriggerInteraction.Ignore);
-
-            bool anyNearby = false;
-            for (int i = 0; i < broadHits; i++)
+            float    bestDist = float.MaxValue;
+            Vector3  hitNormal = n;
+            Collider hitCol = null;
+            for (int i = 0; i < nh; i++)
             {
-                if (!_ownColliders.Contains(_overlapBuffer[i]) && !_overlapBuffer[i].isTrigger)
-                { anyNearby = true; break; }
+                RaycastHit h = _hitBuffer[i];
+                if (_ownColliders.Contains(h.collider) || h.collider.isTrigger) continue;
+                if (h.distance < bestDist) { bestDist = h.distance; hitNormal = h.normal; hitCol = h.collider; }
             }
-            if (!anyNearby) return;
+            if (hitCol == null) { _contactActive = false; return; }
 
-            Physics.SyncTransforms();
+            float depth = L - bestDist;
+            if (depth <= 0f) { _contactActive = false; return; }   // resting just outside — not penetrating
 
-            for (int iter = 0; iter < depenetrationIterations; iter++)
+            bool fresh = !_contactActive;
+            n = hitNormal;                                         // refine to the real surface normal
+            if (logCollisions && fresh)
             {
-                Bounds b      = shipCollider.bounds;
-                radius = b.extents.magnitude;
-
-                int hits = Physics.OverlapSphereNonAlloc(
-                    b.center, radius, _overlapBuffer,
-                    collisionMask, QueryTriggerInteraction.Ignore);
-
-                bool anyHit = false;
-                for (int i = 0; i < hits; i++)
-                {
-                    Collider other = _overlapBuffer[i];
-                    if (_ownColliders.Contains(other) || other.isTrigger) continue;
-
-                    if (!Physics.ComputePenetration(
-                            shipCollider, transform.position,       transform.rotation,
-                            other,        other.transform.position, other.transform.rotation,
-                            out Vector3 dir, out float depth))
-                        continue;
-
-                    transform.position += dir * (depth + 0.001f);
-
-                    // Resting-contact velocity response (shared with the swept impact).
-                    ApplyCollisionResponse(dir);
-
-                    anyHit = true;
-                }
-
-                if (!anyHit) break;
-                Physics.SyncTransforms();
+                string kind = hitCol is MeshCollider mc ? (mc.convex ? "Mesh(convex)" : "Mesh(CONCAVE)") : hitCol.GetType().Name;
+                Debug.Log($"[col] hit '{hitCol.name}' {kind} speedIn={currentVelocity.magnitude:F0} depth={depth:F2} give={collisionGive:F2} n={n}");
             }
+            _contactActive = true;
+            _contactNormal = n;
+
+            // Bottom out: clamp to the give, hard-correct the excess, and kill the into-wall velocity so a
+            // brutal hit or held thrust can't drive deeper — the wall is solid past the give.
+            if (depth > collisionGive)
+            {
+                transform.position += n * (depth - collisionGive);
+                depth = collisionGive;
+                float vnHard = Vector3.Dot(currentVelocity, n);
+                if (vnHard < 0f) currentVelocity -= n * vnHard;
+            }
+
+            float vn = Vector3.Dot(currentVelocity, n);   // < 0 while driving INTO the wall
+            // Damped spring along the normal: Hooke push-out ∝ depth, minus damping ∝ normal speed.
+            float accel = collisionStiffness * depth - collisionDamping * vn;
+            currentVelocity += n * accel * dt;
+
+            // Scrape the along-wall speed (sliding cost); leave the normal spring untouched.
+            if (collisionScrapeDrag > 0f)
+            {
+                Vector3 vN = Vector3.Dot(currentVelocity, n) * n;
+                Vector3 vT = currentVelocity - vN;
+                currentVelocity = vN + vT * Mathf.Exp(-collisionScrapeDrag * dt);
+            }
+
+            // Stun from how hard we drove in (suppresses thrust during recovery). Glances stay below it.
+            float into = Mathf.Max(0f, -vn);
+            float severity = Mathf.Clamp01(into / Mathf.Max(1f, collisionFullForceSpeed));
+            if (severity > collisionStunThreshold && severity > _recoveryLevel)
+                _recoveryLevel = severity;
         }
 
         void LateUpdate()

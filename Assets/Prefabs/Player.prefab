@@ -101,6 +101,9 @@ GameObject:
   - component: {fileID: 7214288431964172718}
   - component: {fileID: 1422785482115474038}
   - component: {fileID: 248704423033184475}
+  - component: {fileID: 4487751196830792695}
+  - component: {fileID: 2781747665518281335}
+  - component: {fileID: 2780736568323088296}
   m_Layer: 0
   m_Name: Camera Target
   m_TagString: Untagged
@@ -180,6 +183,61 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1518585991395968046}
   m_Mesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &4487751196830792695
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1518585991395968046}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 46ea39a4836614327aac9ffb2b16226d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SpaceMayhem.CameraTargetCollision
+  targetCollider: {fileID: 0}
+  collisionMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  depenetrationIterations: 3
+  returnSpeed: 4
+--- !u!135 &2781747665518281335
+SphereCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1518585991395968046}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Radius: 1.03
+  m_Center: {x: 0.000030517578, y: 0, z: -0.000030517578}
+--- !u!114 &2780736568323088296
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1518585991395968046}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d2703a66356f04f0391fbfcc169dd023, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SpaceMayhem.CameraImpactShock
+  controller: {fileID: 2440199787777014147}
+  decoupleStrength: 1
+  reCoupleSpeed: 30
+  holdSpeed: 2
 --- !u!1 &3309518576618827305
 GameObject:
   m_ObjectHideFlags: 0
@@ -493,7 +551,7 @@ ReflectionProbe:
   m_TimeSlicingMode: 0
   m_Resolution: 128
   m_UpdateFrequency: 0
-  m_BoxSize: {x: 6, y: 6, z: 6}
+  m_BoxSize: {x: 10, y: 10, z: 10}
   m_BoxOffset: {x: 0, y: 0, z: 0}
   m_NearClip: 0.3
   m_FarClip: 1000
@@ -630,10 +688,10 @@ MonoBehaviour:
     timeSlicing: 0
     lighting:
       importance: 1
-      multiplier: 298.23
-      weight: 0.861
+      multiplier: 1200
+      weight: 0.256
       lightLayer: 2
-      fadeDistance: 4495
+      fadeDistance: -74
       rangeCompressionFactor: 1
     influence:
       m_EditorAdvancedModeBlendDistancePositive: {x: 1, y: 1, z: 1}
@@ -656,9 +714,9 @@ MonoBehaviour:
       m_BoxBlendNormalDistanceNegative: {x: 0, y: 0, z: 0}
       m_BoxSideFadePositive: {x: 1, y: 1, z: 1}
       m_BoxSideFadeNegative: {x: 1, y: 1, z: 1}
-      m_SphereRadius: 3
-      m_SphereBlendDistance: 1.35
-      m_SphereBlendNormalDistance: 2.33
+      m_SphereRadius: 5
+      m_SphereBlendDistance: 5
+      m_SphereBlendNormalDistance: 1.31
     proxy:
       m_CSVersion: 2
       m_ObsoleteSphereInfiniteProjection: 0
@@ -1111,6 +1169,10 @@ PrefabInstance:
       value: 23
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: pitchLean
+      value: 0.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: brakeForce
       value: 2.5
       objectReference: {fileID: 0}
@@ -1147,24 +1209,56 @@ PrefabInstance:
       value: 40
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: pitchInertia
+      value: 0.55
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: shipCollider
       value: 
-      objectReference: {fileID: 8411317814525980902}
+      objectReference: {fileID: 1962818439066579644}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: carveStrength
+      value: 90
+      objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: peakSlipAngle
       value: 11.9
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: autoLevelSpeed
-      value: 360
+      value: 100
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: driftBoostSnap
+      value: 0.55
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: offTrackHeight
+      value: 35
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: brakeBoostForce
       value: 60
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: hoverThrustForce
+      value: 180
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: pitchAlignTorque
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: pitchSteerTorque
+      value: 1.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: boostSnapDuration
       value: 0.15
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: carveYawThreshold
+      value: 50
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: collisionFriction
@@ -1176,15 +1270,35 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: strafeThrustForce
-      value: 790
+      value: 90
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: barrelRollDuration
       value: 0.15
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionMinThrust
+      value: 0.159
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: driftBoostMaxSpeed
+      value: 180
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: barrelRollDashForce
       value: 95
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionScrapeDrag
+      value: 5.55
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: driftBoostMinCharge
+      value: 0.65
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: driftSpeedRetention
+      value: 0.85
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: horizonResetDuration
@@ -1193,6 +1307,14 @@ PrefabInstance:
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: maxStrafeThrustForce
       value: 180
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionRecoveryTime
+      value: 1.33
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: enableOffTrackPenalty
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: redirectBlendDuration
@@ -1208,11 +1330,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: autoLevelSpeedThreshold
-      value: 15
+      value: -1
       objectReference: {fileID: 0}
     - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: depenetrationIterations
       value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionImpactReference
+      value: 80
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionRecoveryThreshold
+      value: 0.257
       objectReference: {fileID: 0}
     - target: {fileID: 1000000002, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       propertyPath: rollSpeed
@@ -1316,9 +1446,6 @@ PrefabInstance:
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 8411317814525980902}
-    - targetCorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
-      insertIndex: -1
       addedObject: {fileID: 6031244220018316845}
     - targetCorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       insertIndex: -1
@@ -1326,6 +1453,12 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1722843791414593826}
+    - targetCorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 2261300218643758801}
+    - targetCorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1962818439066579644}
   m_SourcePrefab: {fileID: 100100000, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
 --- !u!4 &505919440199516386 stripped
 Transform:
@@ -1353,29 +1486,6 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
   m_PrefabInstance: {fileID: 2440199786795922306}
   m_PrefabAsset: {fileID: 0}
---- !u!136 &8411317814525980902
-CapsuleCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2891998514193825668}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 2
-  m_Radius: 1.35
-  m_Height: 0
-  m_Direction: 2
-  m_Center: {x: -0.03, y: 0, z: 0.49}
 --- !u!114 &6031244220018316845
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1467,6 +1577,44 @@ MonoBehaviour:
     m_RotationOrder: 4
   referenceTopSpeed: 0
   responseSpeed: 1.58
+--- !u!114 &2261300218643758801
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2891998514193825668}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3cd4909a00b614138afd4871c97d4665, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SpaceMayhem.RaceParticipant
+  racerId: 0
+  director: {fileID: 0}
+  displayName: Neohyd
+--- !u!136 &1962818439066579644
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2891998514193825668}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.5787342
+  m_Height: 2.82
+  m_Direction: 2
+  m_Center: {x: 0.048734304, y: -0.29, z: -0.38999996}
 --- !u!1001 &7585122913843386590
 PrefabInstance:
   m_ObjectHideFlags: 0

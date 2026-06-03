@@ -135,7 +135,7 @@ MonoBehaviour:
     m_Value: 1
   fixedExposure:
     m_OverrideState: 1
-    m_Value: 12.55
+    m_Value: 12.53
   compensation:
     m_OverrideState: 1
     m_Value: 0
@@ -277,22 +277,22 @@ MonoBehaviour:
   active: 1
   rotation:
     m_OverrideState: 1
-    m_Value: 209
+    m_Value: 27
   skyIntensityMode:
     m_OverrideState: 1
     m_Value: 0
   exposure:
     m_OverrideState: 1
-    m_Value: 13.9
+    m_Value: 14.11
   multiplier:
-    m_OverrideState: 0
-    m_Value: 1
+    m_OverrideState: 1
+    m_Value: 18084.89
   upperHemisphereLuxValue:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 0.105314404
   upperHemisphereLuxColor:
     m_OverrideState: 1
-    m_Value: {x: 0, y: 0, z: 0}
+    m_Value: {x: 0.11308656, y: 0.08409977, z: 0.5}
   desiredLuxValue:
     m_OverrideState: 0
     m_Value: 20000
@@ -320,7 +320,7 @@ MonoBehaviour:
     m_Value: 1
   hdriSky:
     m_OverrideState: 1
-    m_Value: {fileID: 8900000, guid: 5d12efd9cf3a948f2b819fc211819459, type: 3}
+    m_Value: {fileID: 8900000, guid: 55ee28dd8cf7e4015a65b95b271b3150, type: 3}
   distortionMode:
     m_OverrideState: 0
     m_Value: 2
@@ -333,8 +333,8 @@ MonoBehaviour:
   scrollOrientation:
     m_OverrideState: 0
     m_Value:
-      mode: 1
-      customValue: 0
+      mode: 2
+      customValue: 337
       additiveValue: 0
       multiplyValue: 1
   scrollSpeed:
@@ -412,7 +412,7 @@ MonoBehaviour:
     m_OverrideState: 1
     m_Value: 0.474
   scatter:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 0.7
   tint:
     m_OverrideState: 0
