@@ -44,6 +44,7 @@ GameObject:
   - component: {fileID: 1000000001}
   - component: {fileID: 1000000003}
   - component: {fileID: 1000000002}
+  - component: {fileID: 1000000004}
   m_Layer: 0
   m_Name: Spaceship
   m_TagString: Untagged
@@ -141,6 +142,20 @@ MonoBehaviour:
   gamepadLookSpeed: 180
   maxLookDegreesPerFrame: 25
   settleFrames: 2
+--- !u!114 &1000000004
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 720335785161559046}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4f8a24d8b2364df4a968fa24b4db8e7c, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  visualRoot: {fileID: 1000000011}
+  includeInactiveRenderers: 1
 --- !u!1001 &1693455080689632983
 PrefabInstance:
   m_ObjectHideFlags: 0
