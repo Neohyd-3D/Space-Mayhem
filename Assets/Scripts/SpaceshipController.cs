@@ -350,10 +350,6 @@ namespace SpaceMayhem
                  "stops short of walls.")]
         public float sweepRadius = 0f;
 
-        [Tooltip("TEMP diagnostic: logs each wall contact (collider type, thickness, depth reached, whether " +
-                 "it crossed/tunnelled) to the Console. Turn on, do one high-speed crash, then off.")]
-        public bool logCollisions = false;
-
         [Header("Dependencies")]
         public MomentumSystem momentum;
 
@@ -814,13 +810,7 @@ namespace SpaceMayhem
             float depth = L - bestDist;
             if (depth <= 0f) { _contactActive = false; return; }   // resting just outside — not penetrating
 
-            bool fresh = !_contactActive;
             n = hitNormal;                                         // refine to the real surface normal
-            if (logCollisions && fresh)
-            {
-                string kind = hitCol is MeshCollider mc ? (mc.convex ? "Mesh(convex)" : "Mesh(CONCAVE)") : hitCol.GetType().Name;
-                Debug.Log($"[col] hit '{hitCol.name}' {kind} speedIn={currentVelocity.magnitude:F0} depth={depth:F2} give={collisionGive:F2} n={n}");
-            }
             _contactActive = true;
             _contactNormal = n;
 
