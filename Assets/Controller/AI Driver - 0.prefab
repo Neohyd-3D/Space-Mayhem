@@ -1,0 +1,243 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4956576789724079137
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2394577859595957318}
+  m_Layer: 0
+  m_Name: AI Driver - 0
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2394577859595957318
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4956576789724079137}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0.99891317, z: 0, w: 0.0466097}
+  m_LocalPosition: {x: 763.6, y: 29.49, z: 682.6}
+  m_LocalScale: {x: 2, y: 2, z: 2}
+  m_ConstrainProportionsScale: 1
+  m_Children:
+  - {fileID: 3076237948715545028}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 174.657, z: 0}
+--- !u!1001 &894186448188523172
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 2394577859595957318}
+    m_Modifications:
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: brakeForce
+      value: 80
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: carveStrength
+      value: 110
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionGive
+      value: 3.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionDamping
+      value: 40.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionStiffness
+      value: 2000
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionScrapeDrag
+      value: 7.39
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionThrustFloor
+      value: 0.728
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionRecoveryTime
+      value: 1.36
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionStunThreshold
+      value: 0.055
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000001, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: collisionFullForceSpeed
+      value: 60
+      objectReference: {fileID: 0}
+    - target: {fileID: 1000000002, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_Name
+      value: Spaceship
+      objectReference: {fileID: 0}
+    - target: {fileID: 1408355695980864103, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -0.36927956
+      objectReference: {fileID: 0}
+    - target: {fileID: 1408355695980864103, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -0.5080068
+      objectReference: {fileID: 0}
+    - target: {fileID: 1408355695980864103, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -1.0417256
+      objectReference: {fileID: 0}
+    - target: {fileID: 2230663666111889870, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_Parameters.m_EndRange
+      value: 25
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 286.2
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 108.4
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 527.8
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 0.728975
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0.00020071573
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0.6845404
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0.00022187899
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: -0.001
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: -86.399
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: -0.034
+      objectReference: {fileID: 0}
+    - target: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      propertyPath: m_ConstrainProportionsScale
+      value: 1
+      objectReference: {fileID: 0}
+    m_RemovedComponents:
+    - {fileID: 1000000002, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+    m_RemovedGameObjects:
+    - {fileID: 3804038277326274726, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+    - {fileID: 2675247947275334891, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+    m_AddedGameObjects: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 5807441779230612484}
+  m_SourcePrefab: {fileID: 100100000, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+--- !u!1 &403050463218388642 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 720335785161559046, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+  m_PrefabInstance: {fileID: 894186448188523172}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &5807441779230612484
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 403050463218388642}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93c2cef9b71c74135b50aed2c306c943, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SpaceMayhem.AIDriver
+  track: {fileID: 0}
+  racingLine: {fileID: 0}
+  lookAheadStraight: 40
+  lookAheadCorner: 14
+  lookAheadPerSpeed: 0.18
+  curveProbe: 30
+  lookAheadCurveBend: 45
+  yawGain: 5.5
+  yawDamping: 0.35
+  maxYawRate: 175
+  usePitch: 0
+  pitchGain: 1.92
+  maxPitchRate: 80
+  throttle: 1
+  minCornerSpeed: 90
+  bendForFullSlow: 55
+  slowdownReverse: 0.8
+  lateralTrim: 0.01
+  verticalTrim: 0.116
+  avoidWalls: 1
+  wallMask:
+    serializedVersion: 2
+    m_Bits: 64
+  feelersPerSide: 4
+  feelerSpread: 81.2
+  feelerLength: 45
+  feelerSpeedScale: 1.26
+  feelerHeight: 1
+  avoidYawGain: 140
+  avoidStrafe: 0.7
+  avoidApproachOnly: 0.85
+  avoidBrakeFront: 0
+  maxClimbAngle: 5
+  avoidPitchGain: 90
+  stuckSpeed: 14
+  stuckTime: 1.1
+  recoverDuration: 0.9
+  reverseThrottle: 0.7
+  seekBoosts: 0
+  boostLookAhead: 55
+  boostMaxDetour: 14
+  enableDrift: 0
+  driftBend: 30
+  driftMinSpeed: 100
+  driftStrafe: 0.85
+  driftStrafeIntoTurn: 1
+  driftYawMul: 1.8
+  driftLookAheadMul: 1.6
+  driftExitYawError: 12
+  driftMaxTime: 1.2
+  driftCooldownTime: 0.8
+  drawDebug: 1
+  drawAim: 1
+  drawPrediction: 1
+  predictSteps: 705
+  predictStep: 0.04
+  predictTurnResponse: 7
+  drawTrail: 1
+  trailLength: 256
+  drawFeelers: 1
+--- !u!4 &3076237948715545028 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 2799048517303858016, guid: 973bbd94369a74f1a91633a75828bbd7, type: 3}
+  m_PrefabInstance: {fileID: 894186448188523172}
+  m_PrefabAsset: {fileID: 0}

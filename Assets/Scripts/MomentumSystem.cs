@@ -588,8 +588,33 @@ namespace SpaceMayhem
             _pitchRate += pitchAccel * dt;
             _pitchRate *= Mathf.Exp(-k.pitchDamping * dt);
 
-            velocity = Vector3.ClampMagnitude(velocity, k.maxSpeed);
+            // Speed clamp — to maxSpeed PLUS any active overspeed window (a boost pad lifts the ceiling for
+            // a moment so you can briefly carry past your cruise top speed). The window decays back to 0, so
+            // the elevated speed bleeds down on its own. Without this the boost was clamped away instantly.
+            if (_overspeed > 0f)
+                _overspeed = Mathf.Max(0f, _overspeed - _overspeedDecay * dt);
+            velocity = Vector3.ClampMagnitude(velocity, k.maxSpeed + _overspeed);
             return new MotionState(velocity, _yawRate, _pitchRate, _commitment > 0.5f, _driftDir, _commitment);
+        }
+
+        // ── Overspeed (boost-pad) window ──────────────────────────────────────────
+        // Raised above maxSpeed by a pickup, then relaxes back to 0 over its hold window. The end-of-Step
+        // clamp uses maxSpeed + _overspeed, so a boost genuinely pushes you past your normal cap and fades.
+        float _overspeed;       // current ceiling lift above maxSpeed (m/s), ≥ 0
+        float _overspeedDecay;  // m/s per second the lift relaxes back toward 0
+
+        /// <summary>How far the speed ceiling is currently lifted above maxSpeed (m/s). For FX / HUD.</summary>
+        public float Overspeed => _overspeed;
+
+        /// <summary>
+        /// Lift the speed ceiling <paramref name="amount"/> m/s above maxSpeed, relaxing back to normal over
+        /// <paramref name="holdSeconds"/>. Stacks by keeping the strongest lift and refreshing the window, so
+        /// chained boost pads extend rather than cut each other short.
+        /// </summary>
+        public void StartOverspeed(float amount, float holdSeconds)
+        {
+            _overspeed      = Mathf.Max(_overspeed, Mathf.Max(0f, amount));
+            _overspeedDecay = _overspeed / Mathf.Max(0.05f, holdSeconds);
         }
     }
 }

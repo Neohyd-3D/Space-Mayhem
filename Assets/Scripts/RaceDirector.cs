@@ -122,6 +122,40 @@ namespace SpaceMayhem
             get { foreach (var kv in _progress) return kv.Key; return null; }
         }
 
+        // ── Standings / positioning ───────────────────────────────────────────────
+        // Ranking is a pure read of the same progress the brain already tracks: finished racers (ordered by
+        // finish time) lead everyone still racing, who are ordered by laps + fraction into the current lap.
+        // Multiplayer-safe — the server runs this identical comparison; nothing here is local-only.
+        public int RacerCount => _progress.Count;
+
+        /// <summary>1-based field position (1 = leader). 0 if the racer isn't registered. Allocation-free,
+        /// so it's safe to poll every frame from the HUD.</summary>
+        public int GetPosition(RaceParticipant racer)
+        {
+            if (racer == null || !_progress.TryGetValue(racer, out var me)) return 0;
+            int pos = 1;
+            foreach (var kv in _progress)
+                if (kv.Key != racer && CompareStanding(kv.Value, me) < 0) pos++;   // someone ahead of me
+            return pos;
+        }
+
+        /// <summary>Every racer ordered leader-first. Allocates — use for a standings panel, not a hot path.</summary>
+        public List<RaceParticipant> GetStandings()
+        {
+            var racers = new List<RaceParticipant>(_progress.Keys);
+            racers.Sort((a, b) => CompareStanding(_progress[a], _progress[b]));
+            return racers;
+        }
+
+        // Returns < 0 when `a` is ahead of `b`.
+        static int CompareStanding(RacerProgress a, RacerProgress b)
+        {
+            if (a.finished != b.finished) return a.finished ? -1 : 1;        // finished racers lead
+            if (a.finished)               return a.finishTime.CompareTo(b.finishTime);   // earlier finish leads
+            float pa = a.lap + a.progress, pb = b.lap + b.progress;          // more laps + progress leads
+            return pb.CompareTo(pa);
+        }
+
         // ── Lifecycle ─────────────────────────────────────────────────────────────
         void Awake()
         {

@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: SpeedboostThrust 1
-  m_Shader: {fileID: -6465566751694194690, guid: 1787204013da145a08e838e734b34986, type: 3}
+  m_Name: Speedboost
+  m_Shader: {fileID: -6465566751694194690, guid: 3d803796fedfc42f98edf30bbb120770, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
@@ -18,7 +18,7 @@ Material:
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
-  m_CustomRenderQueue: 3000
+  m_CustomRenderQueue: 2980
   stringTagMap:
     MotionVector: User
     RenderType: Transparent
@@ -59,13 +59,14 @@ Material:
     - _DoubleSidedNormalMode: 2
     - _DstBlend: 10
     - _DstBlend2: 10
+    - _Emission_intensity: 4000000
     - _EnableBlendModePreserveSpecularLighting: 0
     - _EnableFogOnTransparent: 1
     - _ExcludeFromTUAndAA: 0
-    - _Gradient_Masl: 0.55
+    - _Gradient_Masl: 3.42
     - _OpaqueCullMode: 2
     - _PerPixelSorting: 0
-    - _Propeler_Fuel: 12.75
+    - _Propeler_Fuel: 2.17
     - _RenderQueueType: 4
     - _SrcBlend: 1
     - _StencilRef: 0
@@ -81,23 +82,24 @@ Material:
     - _TransparentCullMode: 2
     - _TransparentDepthPostpassEnable: 0
     - _TransparentDepthPrepassEnable: 0
-    - _TransparentSortPriority: 0
+    - _TransparentSortPriority: -20
     - _TransparentWritingMotionVec: 0
     - _TransparentZWrite: 0
     - _UseShadowThreshold: 0
     - _ZTestDepthEqualForOpaque: 4
     - _ZTestTransparent: 4
     - _ZWrite: 0
-    - _power: 6.84
+    - _power: 7.78
     m_Colors:
-    - _Color: {r: 727.5611, g: 175.22414, b: 0, a: 0}
+    - _Color: {r: 0, g: 0, b: 0, a: 0}
     - _DoubleSidedConstants: {r: 1, g: 1, b: -1, a: 0}
     - _EmissionColor: {r: 1, g: 1, b: 1, a: 1}
-    - _Speed: {r: 0, g: -2.67, b: 0, a: 0}
-    - _Tiling: {r: -0.31, g: 2.95, b: 0, a: 0}
+    - _Smoothstep: {r: 0, g: 1, b: 0, a: 0}
+    - _Speed: {r: 0, g: 1.85, b: 0, a: 0}
+    - _Tiling: {r: 6, g: 2.54, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
---- !u!114 &6619848338080788933
+--- !u!114 &4273585098306892793
 MonoBehaviour:
   m_ObjectHideFlags: 11
   m_CorrespondingSourceObject: {fileID: 0}

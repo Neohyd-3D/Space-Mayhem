@@ -17,20 +17,21 @@ namespace SpaceMayhem
 
         [Header("Boost")]
         [Min(0f)]
-        [Tooltip("Extra m/s added along the selected boost direction. The ship's MomentumSystem still clamps to the ship max speed.")]
-        public float boostEnergy = 20f;
+        [Tooltip("How much faster than your NORMAL top speed this pad pushes you (m/s above maxSpeed). It " +
+                 "kicks your velocity AND lifts the speed ceiling, so you briefly blow past your cap.")]
+        public float boostEnergy = 60f;
+
+        [Min(0.05f)]
+        [Tooltip("How long the overspeed lasts before it has bled fully back to your normal top speed (s).")]
+        public float boostHoldSeconds = 1.5f;
 
         [Min(0.001f)]
-        [Tooltip("Seconds used by MomentumSystem to blend into the boosted velocity.")]
+        [Tooltip("Seconds to snap (blend) into the boosted velocity on pickup.")]
         public float boostSnapDuration = 0.2f;
 
         [Min(0f)]
-        [Tooltip("Ensures the velocity component along the boost direction reaches at least this speed after pickup.")]
+        [Tooltip("Ensures the velocity component along the boost direction reaches at least this speed after pickup. 0 = off.")]
         public float minimumExitSpeed = 0f;
-
-        [Min(0f)]
-        [Tooltip("Optional local cap for the boost target before MomentumSystem applies the ship max speed. 0 means no local cap.")]
-        public float maxTargetSpeed = 0f;
 
         public BoostDirectionMode directionMode = BoostDirectionMode.ShipForward;
 
@@ -47,6 +48,10 @@ namespace SpaceMayhem
 
         [Tooltip("Particle/effect GameObject named 'active'. It is active while the boost is ready.")]
         public GameObject activeEffectRoot;
+
+        [Tooltip("Particle/effect GameObject named 'sphere-burst'. It plays when the ship collects the boost.")]
+
+        public GameObject burstSphereEffectRoot;
 
         [Tooltip("Particle/effect GameObject named 'burst'. It plays when the ship collects the boost.")]
         public GameObject burstEffectRoot;
@@ -72,6 +77,10 @@ namespace SpaceMayhem
         Coroutine _cooldownRoutine;
         bool _ready = true;
 
+        /// <summary>True when the pad is live (not cooling down) — so AI drivers only detour for boosts they
+        /// can actually collect.</summary>
+        public bool IsReady => _ready;
+
         void Reset()
         {
             AutoWireReferences();
@@ -80,9 +89,9 @@ namespace SpaceMayhem
         void OnValidate()
         {
             boostEnergy = Mathf.Max(0f, boostEnergy);
+            boostHoldSeconds = Mathf.Max(0.05f, boostHoldSeconds);
             boostSnapDuration = Mathf.Max(0.001f, boostSnapDuration);
             minimumExitSpeed = Mathf.Max(0f, minimumExitSpeed);
-            maxTargetSpeed = Mathf.Max(0f, maxTargetSpeed);
             cooldownSeconds = Mathf.Max(0f, cooldownSeconds);
             triggerRadius = Mathf.Max(0.01f, triggerRadius);
 
@@ -102,12 +111,6 @@ namespace SpaceMayhem
         void OnTriggerEnter(Collider other)
         {
             TryCollect(other);
-        }
-
-        void OnCollisionEnter(Collision collision)
-        {
-            if (collision.collider != null)
-                TryCollect(collision.collider);
         }
 
         [ContextMenu("Reset Spaceboost Pickup")]
@@ -184,9 +187,9 @@ namespace SpaceMayhem
                     targetVelocity += direction * (minimumExitSpeed - alongBoost);
             }
 
-            if (maxTargetSpeed > 0f)
-                targetVelocity = Vector3.ClampMagnitude(targetVelocity, maxTargetSpeed);
-
+            // Lift the speed ceiling first (so the kick isn't clamped back to maxSpeed), then snap into the
+            // boosted velocity. The ceiling then decays over boostHoldSeconds, bleeding the overspeed away.
+            targetMomentum.StartOverspeed(boostEnergy, boostHoldSeconds);
             targetMomentum.StartBoost(fromVelocity, targetVelocity, boostSnapDuration);
         }
 
@@ -224,10 +227,12 @@ namespace SpaceMayhem
             SetVisualActive(false);
             SetEffectActive(activeEffectRoot, false, false);
             SetEffectActive(burstEffectRoot, true, true);
+            SetEffectActive(burstSphereEffectRoot, true, true);
         }
 
         void ShowReadyState()
         {
+            SetEffectActive(burstSphereEffectRoot, false, false);
             SetEffectActive(burstEffectRoot, false, false);
             SetVisualActive(true);
             SetEffectActive(activeEffectRoot, true, true);
